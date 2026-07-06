@@ -1,0 +1,56 @@
+name: my-own-investor
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  # Heavy numeric stack from conda-forge (prebuilt, reliable on macOS)
+  - numpy
+  - pandas
+  - pyarrow
+  - lightgbm
+  - scikit-learn
+  - pip:
+      # --- Broker / market data ---
+      - ib_async              # IBKR TWS/Gateway API (maintained ib_insync successor)
+      - yfinance              # free prices/fundamentals fallback
+
+      # --- Filings / whales / macro (plan §4.1) ---
+      - edgartools            # SEC EDGAR: 13F QoQ diffs, Form 4, 10-K/Q
+      - fredapi               # FRED macro series
+      - httpx                 # REST clients: Polymarket Gamma, Quiver/Unusual Whales, RSS
+
+      # --- Data / persistence ---
+      - duckdb
+      - polars
+      - "pydantic>=2"
+      - pydantic-settings     # layered config + .env secrets
+
+      # --- ML / portfolio / backtest (plan §6) ---
+      - skfolio               # portfolio optimization, sklearn-style
+      - vectorbt              # fast vectorized backtests
+      - mapie                 # conformal prediction intervals
+      - shap                  # model explanations for reports
+
+      # --- LLM / orchestration (plan §7) ---
+      - claude-agent-sdk      # weekly agent runs; claude CLI headless via cron
+      - apscheduler
+
+      # --- Dashboard / report (plan §9) ---
+      - streamlit
+      - plotly
+      - jinja2                # weekly report templates (md/html)
+
+      # --- CLI / config / logging ---
+      - typer
+      - pyyaml
+      - structlog
+
+      # --- Dev / test / quality ---
+      - pytest
+      - pytest-asyncio
+      - respx                 # mock httpx in tests
+      - ruff
+      - mypy
+      - pre-commit
