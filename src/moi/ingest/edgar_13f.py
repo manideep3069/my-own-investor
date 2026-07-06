@@ -119,9 +119,7 @@ def normalize_13f_table(
     return list(agg.values())
 
 
-def annotate_changes(
-    holdings: list[Holding], previous_shares: dict[str, float]
-) -> list[Holding]:
+def annotate_changes(holdings: list[Holding], previous_shares: dict[str, float]) -> list[Holding]:
     """Set change_status on each holding vs the previous quarter's shares-by-cusip map."""
     for h in holdings:
         prev = previous_shares.get(h.cusip)
@@ -158,8 +156,16 @@ def upsert_holdings(con: duckdb.DuckDBPyConnection, holdings: list[Holding]) -> 
         """,
         [
             (
-                h.manager_cik, h.manager_name, h.period, h.cusip, h.ticker, h.issuer,
-                h.value_usd, h.shares, h.change_status, h.filed_at,
+                h.manager_cik,
+                h.manager_name,
+                h.period,
+                h.cusip,
+                h.ticker,
+                h.issuer,
+                h.value_usd,
+                h.shares,
+                h.change_status,
+                h.filed_at,
             )
             for h in holdings
         ],
@@ -227,9 +233,7 @@ def collect_13f(con: duckdb.DuckDBPyConnection, whales_path: Path | None = None)
                     annotate_changes(holdings, prev)
                 written = upsert_holdings(con, holdings)
                 total += written
-                log.info(
-                    "13f_stored", manager=mgr.name, period=str(period), holdings=written
-                )
+                log.info("13f_stored", manager=mgr.name, period=str(period), holdings=written)
         run.add_rows(total)
         run.detail = f"managers={len(managers)}"
     return total

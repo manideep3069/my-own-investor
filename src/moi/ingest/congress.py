@@ -41,8 +41,12 @@ class CongressTrade:
         raw = "|".join(
             str(x)
             for x in (
-                self.politician, self.ticker, self.direction,
-                self.amount_range, self.tx_date, self.source,
+                self.politician,
+                self.ticker,
+                self.direction,
+                self.amount_range,
+                self.tx_date,
+                self.source,
             )
         )
         return hashlib.sha1(raw.encode()).hexdigest()[:16]
@@ -159,8 +163,15 @@ def upsert_trades(con: duckdb.DuckDBPyConnection, trades: list[CongressTrade]) -
         """,
         [
             (
-                t.tx_id, t.politician, t.chamber, t.ticker, t.direction,
-                t.amount_range, t.tx_date, t.disclosure_date, t.source,
+                t.tx_id,
+                t.politician,
+                t.chamber,
+                t.ticker,
+                t.direction,
+                t.amount_range,
+                t.tx_date,
+                t.disclosure_date,
+                t.source,
             )
             for t in trades
         ],

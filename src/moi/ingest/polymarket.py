@@ -94,8 +94,12 @@ def upsert_market(
             updated_at = excluded.updated_at
         """,
         [
-            market.slug, meta.get("question"), market.category,
-            meta.get("token_id"), meta.get("closed"), datetime.now(),
+            market.slug,
+            meta.get("question"),
+            market.category,
+            meta.get("token_id"),
+            meta.get("closed"),
+            datetime.now(),
         ],
     )
 
@@ -115,9 +119,7 @@ def upsert_series(
     return len(points)
 
 
-def collect_polymarket(
-    con: duckdb.DuckDBPyConnection, config_path: Path | None = None
-) -> int:
+def collect_polymarket(con: duckdb.DuckDBPyConnection, config_path: Path | None = None) -> int:
     """Refresh metadata and daily probability series for all tracked markets."""
     markets = load_tracked_markets(config_path)
     total = 0

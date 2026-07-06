@@ -9,8 +9,8 @@ from moi.ingest.quality import check_freshness
 
 def test_empty_db_states(db) -> None:
     states = {t.table: t.state for t in check_freshness(db)}
-    assert states["prices_daily"] == "empty"        # required source
-    assert states["congress_trades"] == "skipped"   # optional (needs API key)
+    assert states["prices_daily"] == "empty"  # required source
+    assert states["congress_trades"] == "skipped"  # optional (needs API key)
     assert states["macro_series"] == "skipped"
 
 

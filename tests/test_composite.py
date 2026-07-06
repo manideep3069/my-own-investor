@@ -14,16 +14,37 @@ def _panel(n_weeks: int = 60) -> pd.DataFrame:
     for week in weeks:
         # HI is close to its high with strong momentum and small size; LO is the opposite.
         rows.append(
-            {"ticker": "HI", "week_end": week, "dist_52w_high": -0.02, "ret_52w": 0.8,
-             "ret_26w": 0.3, "adv_dollar_13w_log": 6.5, "label": np.nan}
+            {
+                "ticker": "HI",
+                "week_end": week,
+                "dist_52w_high": -0.02,
+                "ret_52w": 0.8,
+                "ret_26w": 0.3,
+                "adv_dollar_13w_log": 6.5,
+                "label": np.nan,
+            }
         )
         rows.append(
-            {"ticker": "MID", "week_end": week, "dist_52w_high": -0.2, "ret_52w": 0.2,
-             "ret_26w": 0.1, "adv_dollar_13w_log": 7.5, "label": np.nan}
+            {
+                "ticker": "MID",
+                "week_end": week,
+                "dist_52w_high": -0.2,
+                "ret_52w": 0.2,
+                "ret_26w": 0.1,
+                "adv_dollar_13w_log": 7.5,
+                "label": np.nan,
+            }
         )
         rows.append(
-            {"ticker": "LO", "week_end": week, "dist_52w_high": -0.5, "ret_52w": -0.3,
-             "ret_26w": -0.2, "adv_dollar_13w_log": 9.0, "label": np.nan}
+            {
+                "ticker": "LO",
+                "week_end": week,
+                "dist_52w_high": -0.5,
+                "ret_52w": -0.3,
+                "ret_26w": -0.2,
+                "adv_dollar_13w_log": 9.0,
+                "label": np.nan,
+            }
         )
     return pd.DataFrame(rows)
 

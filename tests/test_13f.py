@@ -60,8 +60,11 @@ def test_upsert_and_previous_period(db) -> None:
     # New quarter with a NEW position diffs against Q1.
     q2_frame = pd.DataFrame(
         {
-            "Issuer": ["Vertiv"], "Cusip": ["92537N108"], "Ticker": ["VRT"],
-            "Value": [100.0], "Shares": [10.0],
+            "Issuer": ["Vertiv"],
+            "Cusip": ["92537N108"],
+            "Ticker": ["VRT"],
+            "Value": [100.0],
+            "Shares": [10.0],
         }
     )
     q2 = normalize_13f_table(MGR, date(2026, 6, 30), None, q2_frame)
@@ -76,8 +79,15 @@ def test_normalize_handles_missing_columns() -> None:
 
 def test_holding_dataclass_defaults() -> None:
     h = Holding(
-        manager_cik="1", manager_name="x", period=date(2026, 1, 1), cusip="c",
-        ticker=None, issuer=None, value_usd=None, shares=None,
-        change_status=None, filed_at=None,
+        manager_cik="1",
+        manager_name="x",
+        period=date(2026, 1, 1),
+        cusip="c",
+        ticker=None,
+        issuer=None,
+        value_usd=None,
+        shares=None,
+        change_status=None,
+        filed_at=None,
     )
     assert h.change_status is None

@@ -12,9 +12,7 @@ import pandas as pd
 
 def weekly_close_panel(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Weekly adjusted-close panel: index = week_end (Fri), columns = tickers."""
-    df = con.execute(
-        "SELECT ticker, date, coalesce(adj_close, close) AS px FROM prices_daily"
-    ).df()
+    df = con.execute("SELECT ticker, date, coalesce(adj_close, close) AS px FROM prices_daily").df()
     df["date"] = pd.to_datetime(df["date"])
     panel = df.pivot_table(index="date", columns="ticker", values="px")
     return panel.resample("W-FRI").last()

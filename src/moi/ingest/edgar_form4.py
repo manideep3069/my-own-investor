@@ -153,8 +153,17 @@ def upsert_insider(con: duckdb.DuckDBPyConnection, rows: list[InsiderTx]) -> int
         """,
         [
             (
-                r.accession, r.seq, r.ticker, r.insider, r.role, r.tx_date, r.code,
-                r.shares, r.price, r.value_usd, r.filed_at,
+                r.accession,
+                r.seq,
+                r.ticker,
+                r.insider,
+                r.role,
+                r.tx_date,
+                r.code,
+                r.shares,
+                r.price,
+                r.value_usd,
+                r.filed_at,
             )
             for r in rows
         ],
@@ -203,9 +212,7 @@ def collect_form4(
                     insider = getattr(form4, "insider_name", None) or getattr(
                         form4, "reporting_owner", None
                     )
-                    rows = normalize_form4_frame(
-                        ticker, accession, filed_dt, insider, None, frame
-                    )
+                    rows = normalize_form4_frame(ticker, accession, filed_dt, insider, None, frame)
                     total += upsert_insider(con, rows)
                 except Exception as exc:
                     log.warning(

@@ -53,9 +53,7 @@ def check_freshness(con: duckdb.DuckDBPyConnection) -> list[TableStatus]:
     """Evaluate every freshness check against the database."""
     results: list[TableStatus] = []
     for check in CHECKS:
-        row = con.execute(
-            f"SELECT count(*), max({check.ts_column}) FROM {check.table}"
-        ).fetchone()
+        row = con.execute(f"SELECT count(*), max({check.ts_column}) FROM {check.table}").fetchone()
         rows = int(row[0]) if row else 0
         latest = row[1] if row else None
 

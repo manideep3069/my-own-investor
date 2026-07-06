@@ -20,9 +20,7 @@ def load_dataset(
     to every ticker row of the same week. Rows without labels (most recent H weeks)
     are kept with label = NaN — they are the live scoring rows.
     """
-    feats = con.execute(
-        "SELECT ticker, week_end, feature, value FROM features_weekly"
-    ).df()
+    feats = con.execute("SELECT ticker, week_end, feature, value FROM features_weekly").df()
     if feats.empty:
         raise RuntimeError("features_weekly is empty — run `moi features build` first.")
     feats["week_end"] = pd.to_datetime(feats["week_end"])

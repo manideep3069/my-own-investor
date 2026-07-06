@@ -49,6 +49,7 @@ def parse_rss(xml_text: str, *, feed: str, ticker: str | None = None) -> list[Ne
     # RSS 2.0: channel/item; Atom: {ns}entry
     entries = root.findall(".//item") or root.findall(".//{http://www.w3.org/2005/Atom}entry")
     for entry in entries:
+
         def find_text(*tags: str, entry: ET.Element = entry) -> str | None:
             for tag in tags:
                 el = entry.find(tag)
@@ -65,7 +66,8 @@ def parse_rss(xml_text: str, *, feed: str, ticker: str | None = None) -> list[Ne
         if not title or not url:
             continue
         pub_raw = find_text(
-            "pubDate", "{http://www.w3.org/2005/Atom}published",
+            "pubDate",
+            "{http://www.w3.org/2005/Atom}published",
             "{http://www.w3.org/2005/Atom}updated",
         )
         published: datetime | None = None
@@ -101,10 +103,7 @@ def upsert_news(con: duckdb.DuckDBPyConnection, items: list[NewsItem]) -> int:
         VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO NOTHING
         """,
-        [
-            (i.id, i.ticker, i.title, i.url, i.published_at, i.feed, i.summary)
-            for i in items
-        ],
+        [(i.id, i.ticker, i.title, i.url, i.published_at, i.feed, i.summary) for i in items],
     )
     return len(items)
 

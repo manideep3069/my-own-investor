@@ -40,9 +40,7 @@ COMPOSITE_SPEC: list[tuple[str, float]] = [
 WARMUP_WEEKS = 52  # ret_52w needs a year of history before ranks are meaningful
 
 
-def composite_scores(
-    df: pd.DataFrame, spec: list[tuple[str, float]] | None = None
-) -> pd.DataFrame:
+def composite_scores(df: pd.DataFrame, spec: list[tuple[str, float]] | None = None) -> pd.DataFrame:
     """Score every (ticker, week) row. Returns columns: ticker, week_end, score, label."""
     spec = spec or COMPOSITE_SPEC
     ranks = [

@@ -89,9 +89,7 @@ def run_backtest(
             new_holdings = [t for t in ranked["ticker"].tolist() if t in tickers][: cfg.top_n]
             if new_holdings:
                 changed = (
-                    len(set(new_holdings) ^ set(holdings)) / 2
-                    if holdings
-                    else len(new_holdings)
+                    len(set(new_holdings) ^ set(holdings)) / 2 if holdings else len(new_holdings)
                 )
                 turnover = changed / max(len(new_holdings), 1)
                 cost = 2 * turnover * cfg.cost_bps_per_side / 10_000  # sell + buy legs
