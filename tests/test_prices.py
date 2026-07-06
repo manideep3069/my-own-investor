@@ -39,6 +39,23 @@ def test_normalize_empty_frame() -> None:
     assert normalize_yf_frame("ALAB", pd.DataFrame()) == []
 
 
+def test_incremental_start(db) -> None:
+    from datetime import date, timedelta
+
+    from moi.ingest.prices import incremental_start
+
+    today = date(2026, 7, 6)
+    # Empty table → full window.
+    assert incremental_start(db, years=2, today=today) == today - timedelta(
+        days=int(2 * 365.25) + 5
+    )
+    # With stored data → resume one week before the latest bar.
+    db.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) VALUES ('X', '2026-07-01', 1, 't')"
+    )
+    assert incremental_start(db, years=2, today=today) == date(2026, 6, 24)
+
+
 def test_upsert_is_idempotent(db) -> None:
     rows = normalize_yf_frame("ALAB", _frame())
     assert upsert_prices(db, rows) == 2

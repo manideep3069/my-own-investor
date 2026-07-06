@@ -33,3 +33,21 @@ def test_store_suggestions(db) -> None:
     assert n == 1
     row = db.execute("SELECT ticker, action, status, thesis FROM suggestions").fetchone()
     assert row == ("ALAB", "BUY", "PENDING", "t")
+
+
+def test_new_run_supersedes_old_pending(db) -> None:
+    week1 = [Action("ALAB", "BUY", 0.0, 0.08), Action("COHR", "BUY", 0.0, 0.08)]
+    store_suggestions(db, pd.Timestamp("2026-07-10"), week1)
+    # One gets approved before the next run; approved rows must NOT be touched.
+    sid = db.execute("SELECT id FROM suggestions WHERE ticker='ALAB'").fetchone()[0]
+    db.execute("UPDATE suggestions SET status='APPROVED' WHERE id=?", [sid])
+
+    week2 = [Action("COHR", "BUY", 0.0, 0.09)]
+    store_suggestions(db, pd.Timestamp("2026-07-17"), week2)
+
+    counts = dict(db.execute("SELECT status, count(*) FROM suggestions GROUP BY 1").fetchall())
+    assert counts == {"APPROVED": 1, "SUPERSEDED": 1, "PENDING": 1}
+    pending = db.execute(
+        "SELECT ticker, week_end FROM suggestions WHERE status='PENDING'"
+    ).fetchone()
+    assert str(pending[0]) == "COHR" and str(pending[1]) == "2026-07-17"

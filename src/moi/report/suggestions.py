@@ -65,7 +65,15 @@ def current_universe_weights(con: duckdb.DuckDBPyConnection) -> dict[str, float]
 
     if not info.net_liquidation:
         return None
-    universe = {t for (t,) in con.execute("SELECT ticker FROM universe WHERE active").fetchall()}
+    # Candidates only: benchmark ETFs (SPY/QQQ/SMH/...) are outside the advised sleeve —
+    # the executor whitelist refuses them, so suggesting SELLs on them would create
+    # suggestions the system cannot execute. They surface via benchmark_overlap() instead.
+    universe = {
+        t
+        for (t,) in con.execute(
+            "SELECT ticker FROM universe WHERE active AND NOT is_benchmark"
+        ).fetchall()
+    }
     now = datetime.now()
     weights: dict[str, float] = {}
     for symbol, qty, avg_cost in info.positions:
@@ -86,9 +94,36 @@ def current_universe_weights(con: duckdb.DuckDBPyConnection) -> dict[str, float]
     return weights
 
 
+def benchmark_overlap(con: duckdb.DuckDBPyConnection) -> list[tuple[str, float]]:
+    """Benchmark-ETF holdings (weight of book) from the latest account snapshot.
+
+    Reported as context — the system never proposes orders on these; rotating them
+    into the managed sleeve is a manual decision.
+    """
+    rows = con.execute(
+        """SELECT s.ticker, s.market_value / s.net_liquidation
+           FROM portfolio_snapshots s
+           JOIN universe u ON u.ticker = s.ticker AND u.is_benchmark
+           WHERE s.taken_at = (SELECT max(taken_at) FROM portfolio_snapshots)
+           ORDER BY 2 DESC"""
+    ).fetchall()
+    return [(str(t), float(w)) for t, w in rows]
+
+
 def store_suggestions(
     con: duckdb.DuckDBPyConnection, week_end: pd.Timestamp, actions: list[Action]
 ) -> int:
+    """Persist this week's actions, superseding any still-pending older suggestions.
+
+    Each weekly run is a full restatement of intent — leaving last week's PENDING rows
+    active would flood the queue with near-duplicates.
+    """
+    superseded = con.execute(
+        "UPDATE suggestions SET status = 'SUPERSEDED', decided_at = ? WHERE status = 'PENDING'",
+        [datetime.now()],
+    ).fetchone()
+    if superseded:
+        log.info("suggestions_superseded", count=superseded[0])
     for a in actions:
         con.execute(
             """INSERT INTO suggestions

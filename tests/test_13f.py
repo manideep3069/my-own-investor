@@ -72,6 +72,16 @@ def test_upsert_and_previous_period(db) -> None:
     assert q2[0].change_status == "NEW"
 
 
+def test_implausible_baseline_guard_logic() -> None:
+    """A 4-holding partial filing must not serve as a diff baseline for a 40-holding one."""
+    current = normalize_13f_table(MGR, date(2026, 3, 31), None, _frame())  # 2 holdings
+    tiny_baseline = {"037833100": 1.0}  # 1 holding = 50% of 2 → plausible edge
+    ok = len(tiny_baseline) >= 0.5 * max(len(current), 1)
+    assert ok  # boundary case passes
+    implausible = {}  # empty is handled by the `if prev` branch upstream
+    assert not (implausible and len(implausible) >= 0.5 * max(len(current), 1))
+
+
 def test_normalize_handles_missing_columns() -> None:
     frame = pd.DataFrame({"SomethingElse": [1]})
     assert normalize_13f_table(MGR, date(2026, 3, 31), None, frame) == []

@@ -43,18 +43,19 @@ def whale_digest(con: duckdb.DuckDBPyConnection) -> str:
         lines.append("\nLargest whale moves this quarter (any sector):")
         lines += [f"- {m}: {c} {t or issuer} (${mm:.0f}M)" for m, t, issuer, c, mm in moves]
 
+    # Heavy selling is as informative as buying in this universe — show both extremes.
     insiders = con.execute(
         """
         SELECT ticker, count(*) FILTER (code = 'P') AS buys,
                count(*) FILTER (code = 'S') AS sells
         FROM insider_form4
         WHERE tx_date > current_date - INTERVAL 90 DAY
-        GROUP BY ticker HAVING buys > 0
-        ORDER BY buys - sells DESC LIMIT 8
+        GROUP BY ticker HAVING buys + sells > 0
+        ORDER BY abs(buys - sells) DESC LIMIT 8
         """
     ).fetchall()
     if insiders:
-        lines.append("\nInsider activity, last 90 days (universe):")
+        lines.append("\nInsider activity, last 90 days (universe, most net activity):")
         lines += [f"- {t}: {b} buys / {s} sells" for t, b, s in insiders]
     return "\n".join(lines)
 

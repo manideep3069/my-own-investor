@@ -175,21 +175,42 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, rows: list[PriceRow]) -> int:
     return len(rows)
 
 
+def incremental_start(
+    con: duckdb.DuckDBPyConnection, years: int, today: date | None = None
+) -> date:
+    """Start date for a refresh: 7 days before the latest stored bar (idempotent overlap),
+    or the full `years` window when the table is empty / `full` refreshes are wanted."""
+    today = today or date.today()
+    full_start = today - timedelta(days=int(years * 365.25) + 5)
+    row = con.execute("SELECT max(date) FROM prices_daily").fetchone()
+    if row and row[0]:
+        latest: date = row[0]
+        return max(full_start, latest - timedelta(days=7))
+    return full_start
+
+
 def collect_prices(
     con: duckdb.DuckDBPyConnection,
     *,
     years: int,
     tickers: list[str] | None = None,
     source: str = "yfinance",
+    full: bool = False,
 ) -> int:
     """Fetch and upsert daily prices for the universe. Returns rows written.
+
+    Incremental by default (last stored date minus a week); ``full=True`` refetches the
+    whole window — use after adding tickers to the universe.
 
     Args:
         source: "yfinance" (default, no gateway needed) or "ibkr" (requires connection).
     """
     syms = tickers if tickers is not None else all_tickers()
     end = date.today()
-    start = end - timedelta(days=int(years * 365.25) + 5)
+    if full:
+        start = end - timedelta(days=int(years * 365.25) + 5)
+    else:
+        start = incremental_start(con, years, end)
 
     with track_run(con, job="collect.prices") as run:
         if source == "ibkr":

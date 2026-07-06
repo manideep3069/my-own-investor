@@ -110,8 +110,11 @@ def ibkr_ping() -> None:
 def collect_prices_cmd(
     source: str = typer.Option("yfinance", help="Price source: yfinance | ibkr."),
     years: int | None = typer.Option(None, help="History window; defaults to config."),
+    full: bool = typer.Option(
+        False, "--full", help="Refetch the whole window (after adding tickers)."
+    ),
 ) -> None:
-    """Backfill/refresh daily OHLCV for the universe."""
+    """Refresh daily OHLCV (incremental by default; --full for complete backfill)."""
     from moi.db import connect
     from moi.ingest.prices import collect_prices
     from moi.universe import sync_universe
@@ -119,7 +122,9 @@ def collect_prices_cmd(
     settings = get_settings()
     con = connect()
     sync_universe(con)  # ensure universe table is current before collecting
-    written = collect_prices(con, years=years or settings.price_history_years, source=source)
+    written = collect_prices(
+        con, years=years or settings.price_history_years, source=source, full=full
+    )
     typer.secho(f"Upserted {written} price rows from {source}.", fg=typer.colors.GREEN)
 
 
@@ -189,38 +194,9 @@ def collect_macro_cmd() -> None:
 def collect_all_cmd() -> None:
     """Run every collector in sequence (nightly job). Failures don't abort the run."""
     from moi.db import connect
-    from moi.universe import sync_universe
+    from moi.ingest.runner import collect_everything
 
-    settings = get_settings()
-    con = connect()
-    sync_universe(con)
-
-    def _step(name: str, fn: typing.Callable[[], int]) -> tuple[str, str]:
-        try:
-            return name, f"ok ({fn()} rows)"
-        except Exception as exc:
-            log.error("collect_step_failed", step=name, error=str(exc))
-            return name, f"ERROR: {exc}"
-
-    import typing
-
-    from moi.ingest.congress import collect_congress
-    from moi.ingest.edgar_13f import collect_13f
-    from moi.ingest.edgar_form4 import collect_form4
-    from moi.ingest.macro import collect_macro
-    from moi.ingest.news import collect_news
-    from moi.ingest.polymarket import collect_polymarket
-    from moi.ingest.prices import collect_prices
-
-    results = [
-        _step("prices", lambda: collect_prices(con, years=settings.price_history_years)),
-        _step("13f", lambda: collect_13f(con)),
-        _step("form4", lambda: collect_form4(con)),
-        _step("congress", lambda: collect_congress(con)),
-        _step("polymarket", lambda: collect_polymarket(con)),
-        _step("news", lambda: collect_news(con)),
-        _step("macro", lambda: collect_macro(con)),
-    ]
+    results = collect_everything(connect())
     typer.echo("\ncollect all — summary")
     failed = False
     for name, outcome in results:
@@ -432,13 +408,41 @@ def dashboard() -> None:
 def weekly(
     no_llm: bool = typer.Option(False, "--no-llm", help="Numbers-only report (skip agents)."),
     top_n: int = typer.Option(12, help="Max positions in the target portfolio."),
+    collect: bool = typer.Option(False, "--collect", help="Run all collectors first."),
 ) -> None:
-    """Run the full weekly pipeline: features → portfolio → suggestions → report."""
+    """Run the full weekly pipeline: [collect →] features → portfolio → suggestions → report."""
     from moi.db import connect
     from moi.report.weekly import run_weekly
 
-    path = run_weekly(connect(), with_llm=not no_llm, top_n=top_n)
+    path = run_weekly(connect(), with_llm=not no_llm, top_n=top_n, collect=collect)
     typer.secho(f"Weekly report written: {path}", fg=typer.colors.GREEN)
+
+
+@app.command("orders")
+def orders_cmd(
+    sync: bool = typer.Option(False, "--sync", help="Reconcile fills with IBKR (needs gateway)."),
+) -> None:
+    """List recent orders; --sync updates their status from the broker."""
+    from moi.db import connect
+
+    con = connect()
+    if sync:
+        from moi.execute.executor import sync_fills
+
+        try:
+            for line in sync_fills(con):
+                typer.echo(f"  {line}")
+        except ConnectionError as exc:
+            typer.secho(str(exc), fg=typer.colors.RED)
+            raise typer.Exit(code=1) from exc
+    rows = con.execute(
+        """SELECT created_at, ticker, side, quantity, limit_price, status, fill_price
+           FROM orders ORDER BY created_at DESC LIMIT 20"""
+    ).fetchall()
+    for created, ticker, side, qty, lim, st, fill in rows:
+        typer.echo(f"  {created} {side:4} {qty:>6} {ticker:6} lim={lim} {st} fill={fill}")
+    if not rows:
+        typer.echo("No orders journaled yet.")
 
 
 @app.command("watch")

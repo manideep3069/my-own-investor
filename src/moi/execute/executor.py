@@ -98,8 +98,6 @@ def plan_order(
 
     delta_value = (target_weight - current_weight) * net_liquidation
     side = "BUY" if action in ("BUY", "ADD") else "SELL"
-    if side == "SELL":
-        delta_value = -abs(delta_value) if delta_value == 0 else delta_value
     quantity = math.floor(abs(delta_value) / price)
     if quantity < 1:
         raise SafetyError(f"{ticker}: computed quantity is zero (delta ${delta_value:.0f})")
@@ -167,6 +165,49 @@ def journal_order(
     return order_id
 
 
+def sync_fills(con: duckdb.DuckDBPyConnection) -> list[str]:
+    """Reconcile journaled orders with IBKR state (open orders + completed trades).
+
+    Matches on ``perm_id`` (durable across TWS restarts). Read-only against the broker —
+    safe to run any time a gateway is up.
+    """
+    from moi.ingest.ibkr import ib_connection
+
+    open_rows = con.execute(
+        "SELECT order_id, perm_id, ticker FROM orders WHERE status = 'submitted'"
+    ).fetchall()
+    if not open_rows:
+        return ["no submitted orders to sync"]
+
+    results: list[str] = []
+    with ib_connection() as ib:
+        ib.reqAllOpenOrders()
+        ib.sleep(1)
+        trades = {t.order.permId: t for t in ib.trades() if t.order.permId}
+        for order_id, perm_id, ticker in open_rows:
+            trade = trades.get(perm_id)
+            if trade is None:
+                results.append(f"{ticker}: no broker state found (perm_id={perm_id})")
+                continue
+            st = trade.orderStatus
+            if st.status == "Filled":
+                con.execute(
+                    """UPDATE orders SET status = 'filled', filled_at = ?, fill_price = ?,
+                       detail = ? WHERE order_id = ?""",
+                    [datetime.now(), st.avgFillPrice or None, st.status, order_id],
+                )
+                results.append(f"{ticker}: FILLED @ {st.avgFillPrice}")
+            elif st.status in ("Cancelled", "ApiCancelled", "Inactive"):
+                con.execute(
+                    "UPDATE orders SET status = 'cancelled', detail = ? WHERE order_id = ?",
+                    [st.status, order_id],
+                )
+                results.append(f"{ticker}: {st.status}")
+            else:
+                results.append(f"{ticker}: still {st.status}")
+    return results
+
+
 # --------------------------------------------------------------------------- #
 # Execution (broker side)
 # --------------------------------------------------------------------------- #
@@ -220,8 +261,13 @@ def execute_approved(con: duckdb.DuckDBPyConnection) -> list[str]:
                 trade = ib.placeOrder(contract, order)
                 ib.sleep(2)
                 con.execute(
-                    "UPDATE orders SET ib_order_id = ?, detail = ? WHERE order_id = ?",
-                    [trade.order.orderId, trade.orderStatus.status, order_id],
+                    "UPDATE orders SET ib_order_id = ?, perm_id = ?, detail = ? WHERE order_id = ?",
+                    [
+                        trade.order.orderId,
+                        trade.order.permId or None,
+                        trade.orderStatus.status,
+                        order_id,
+                    ],
                 )
                 con.execute(
                     "UPDATE suggestions SET status = 'EXECUTED' WHERE id = ?", [suggestion_id]

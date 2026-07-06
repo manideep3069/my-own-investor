@@ -18,6 +18,7 @@ from moi.logging import get_logger
 from moi.ml.portfolio import build_portfolio
 from moi.report.digests import news_digest, trends_digest, whale_digest
 from moi.report.suggestions import (
+    benchmark_overlap,
     current_universe_weights,
     diff_actions,
     store_suggestions,
@@ -28,8 +29,19 @@ log = get_logger(__name__)
 REPORTS_DIR = ROOT / "reports"
 
 
-def run_weekly(con: duckdb.DuckDBPyConnection, *, with_llm: bool = True, top_n: int = 12) -> Path:
+def run_weekly(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    with_llm: bool = True,
+    top_n: int = 12,
+    collect: bool = False,
+) -> Path:
     """Execute the full weekly pipeline; returns the path of the written report."""
+    if collect:
+        from moi.ingest.runner import collect_everything
+
+        for name, outcome in collect_everything(con):
+            log.info("weekly_collect_step", step=name, outcome=outcome)
     stale = [t.table for t in check_freshness(con) if t.state in ("stale", "empty")]
     build_features(con)
     portfolio = build_portfolio(con, top_n=top_n)
@@ -120,6 +132,17 @@ def run_weekly(con: duckdb.DuckDBPyConnection, *, with_llm: bool = True, top_n: 
     for p in portfolio.positions:
         lines.append(f"- {p.ticker}: {p.weight:.1%} ({p.sub_sector}, score {p.score:.3f})")
     lines += [f"- CASH: {portfolio.cash_weight:.1%}", ""]
+
+    etfs = benchmark_overlap(con)
+    if etfs:
+        held = ", ".join(f"{t} {w:.1%}" for t, w in etfs)
+        lines += [
+            "> **Outside managed sleeve:** benchmark ETF holdings — "
+            + held
+            + ". The system never places orders on these; rotating them into the "
+            "managed sleeve is a manual decision.",
+            "",
+        ]
     lines += ["## Whale watch", "", whales_txt or "", "", whales, ""]
     lines += ["## Trends", "", trends, ""]
 

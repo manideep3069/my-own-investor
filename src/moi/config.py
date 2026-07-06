@@ -61,7 +61,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MOI_",
         env_nested_delimiter="__",
-        env_file=".env",
+        # Absolute path: `moi` must find its .env regardless of the caller's cwd
+        # (launchd/cron jobs run from $HOME).
+        env_file=str(ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

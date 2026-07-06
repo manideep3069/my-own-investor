@@ -229,8 +229,20 @@ def collect_13f(con: duckdb.DuckDBPyConnection, whales_path: Path | None = None)
             for period, filed, frame in parsed:
                 holdings = normalize_13f_table(mgr, period, filed, frame)
                 prev = previous_period_shares(con, mgr.cik, period)
-                if prev:  # first stored quarter has no baseline — leave status NULL
+                # Guard against partial filings (confidential-treatment 13Fs report only
+                # a few positions): diffing against such a baseline produces dozens of
+                # false NEW statuses. Require the baseline to be at least ~half the size
+                # of the current filing; otherwise leave change_status NULL.
+                if prev and len(prev) >= 0.5 * max(len(holdings), 1):
                     annotate_changes(holdings, prev)
+                elif prev:
+                    log.warning(
+                        "13f_baseline_implausible",
+                        manager=mgr.name,
+                        period=str(period),
+                        baseline=len(prev),
+                        current=len(holdings),
+                    )
                 written = upsert_holdings(con, holdings)
                 total += written
                 log.info("13f_stored", manager=mgr.name, period=str(period), holdings=written)

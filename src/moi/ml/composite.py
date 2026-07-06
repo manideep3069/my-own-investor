@@ -59,8 +59,14 @@ def composite_scores(df: pd.DataFrame, spec: list[tuple[str, float]] | None = No
     return out.reset_index(drop=True)
 
 
-def evaluate_composite(con: duckdb.DuckDBPyConnection) -> tuple[pd.DataFrame, dict[str, float]]:
-    """Score the full panel and compute IC metrics on the labeled portion."""
+def evaluate_composite(
+    con: duckdb.DuckDBPyConnection, *, record: bool = True
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Score the full panel and compute IC metrics on the labeled portion.
+
+    ``record=False`` skips the ``model_runs`` insert — use for read-path callers
+    (dashboard, `moi ml scores`) so the registry only holds deliberate evaluations.
+    """
     df, _ = load_dataset(con)
     scores = composite_scores(df)
     labeled = scores.dropna(subset=["label"])
@@ -75,24 +81,26 @@ def evaluate_composite(con: duckdb.DuckDBPyConnection) -> tuple[pd.DataFrame, di
         "ic_positive_share": float((ics > 0).mean()) if len(ics) else float("nan"),
         "n_weeks": float(labeled["week_end"].nunique()),
     }
-    run_id = new_run_id()
-    con.execute(
-        "INSERT INTO model_runs (run_id, created_at, kind, params, metrics) VALUES (?, ?, ?, ?, ?)",
-        [
-            run_id,
-            datetime.now(),
-            "composite",
-            json.dumps({"spec": COMPOSITE_SPEC}),
-            json.dumps(metrics),
-        ],
-    )
+    if record:
+        run_id = new_run_id()
+        con.execute(
+            "INSERT INTO model_runs (run_id, created_at, kind, params, metrics) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                run_id,
+                datetime.now(),
+                "composite",
+                json.dumps({"spec": COMPOSITE_SPEC}),
+                json.dumps(metrics),
+            ],
+        )
     log.info("composite_evaluated", **{k: round(v, 4) for k, v in metrics.items()})
     return scores, metrics
 
 
 def latest_scores(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Composite scores for the most recent week — the live candidate ranking."""
-    scores, _ = evaluate_composite(con)
+    scores, _ = evaluate_composite(con, record=False)
     last_week = scores["week_end"].max()
     return (
         scores[scores["week_end"] == last_week]
