@@ -180,14 +180,30 @@ def upsert_trades(con: duckdb.DuckDBPyConnection, trades: list[CongressTrade]) -
 
 
 def collect_congress(con: duckdb.DuckDBPyConnection) -> int:
-    """Fetch congress trades from the configured provider. Skips if no API key is set."""
+    """Fetch congress trades from the configured provider.
+
+    Skips gracefully when no API key is set OR when the key's subscription tier lacks
+    dataset access (401/403) — a keyed-but-unsubscribed account shouldn't fail the
+    nightly run.
+    """
     provider = make_provider()
     if provider is None:
         log.warning("congress_skipped", reason="no API key configured (MOI_QUIVER_API_KEY)")
         return 0
     with track_run(con, job="collect.congress") as run:
-        with httpx.Client(timeout=60) as client:
-            trades = provider.fetch(client)
+        try:
+            with httpx.Client(timeout=60) as client:
+                trades = provider.fetch(client)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                log.warning(
+                    "congress_skipped",
+                    reason=f"{provider.name} returned {exc.response.status_code} — "
+                    "subscription tier lacks dataset access",
+                )
+                run.detail = f"provider={provider.name} auth-insufficient"
+                return 0
+            raise
         written = upsert_trades(con, trades)
         run.add_rows(written)
         run.detail = f"provider={provider.name}"

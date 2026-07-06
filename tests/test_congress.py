@@ -41,6 +41,22 @@ def test_parse_row() -> None:
 
 
 @respx.mock
+def test_unsubscribed_key_skips_gracefully(db, monkeypatch) -> None:
+    import moi.ingest.congress as mod
+
+    respx.get(QuiverProvider.url).mock(
+        return_value=httpx.Response(403, json={"detail": "Upgrade your subscription plan"})
+    )
+    monkeypatch.setattr(mod, "make_provider", lambda: QuiverProvider("free-tier-key"))
+    assert mod.collect_congress(db) == 0  # no exception, no rows
+    status = db.execute(
+        "SELECT status, detail FROM run_log WHERE job = 'collect.congress'"
+    ).fetchone()
+    assert status[0] == "ok"
+    assert "auth-insufficient" in status[1]
+
+
+@respx.mock
 def test_fetch_and_upsert_idempotent(db) -> None:
     respx.get(QuiverProvider.url).mock(return_value=httpx.Response(200, json=SAMPLE))
     provider = QuiverProvider("test-key")
