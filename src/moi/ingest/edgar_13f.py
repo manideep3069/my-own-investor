@@ -198,7 +198,13 @@ def collect_13f(con: duckdb.DuckDBPyConnection, whales_path: Path | None = None)
     """Fetch and store recent 13F holdings for all configured managers."""
     from edgar import Company, set_identity
 
-    set_identity(get_settings().edgar_identity)
+    identity = get_settings().edgar_identity
+    if not identity:
+        raise RuntimeError(
+            "SEC EDGAR requires a contact identity. Set MOI_EDGAR_IDENTITY in .env, "
+            "e.g. MOI_EDGAR_IDENTITY=Jane Doe jane@example.com"
+        )
+    set_identity(identity)
     managers, backfill = load_whales(whales_path)
     total = 0
 

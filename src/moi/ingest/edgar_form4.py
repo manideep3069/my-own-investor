@@ -179,7 +179,13 @@ def collect_form4(
     """Fetch recent Form 4 filings for universe tickers and store transactions."""
     from edgar import Company, set_identity
 
-    set_identity(get_settings().edgar_identity)
+    identity = get_settings().edgar_identity
+    if not identity:
+        raise RuntimeError(
+            "SEC EDGAR requires a contact identity. Set MOI_EDGAR_IDENTITY in .env, "
+            "e.g. MOI_EDGAR_IDENTITY=Jane Doe jane@example.com"
+        )
+    set_identity(identity)
     syms = tickers if tickers is not None else candidate_tickers()
     total = 0
 

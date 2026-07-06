@@ -4,6 +4,10 @@ Companion to [PLAN.md](PLAN.md) (architecture and rationale). This document is t
 build order: phases, tasks, files, and the acceptance gate that must pass before the
 next phase starts.
 
+> **Status (2026-07-07): Phases 0–4 complete, all gates passed.** Phase 5
+> (paper-trade evaluation) is the current phase — it is calendar time, not code:
+> weekly runs, queue decisions, and live-vs-backtest tracking for 8–12 weeks.
+
 **Working conventions (all phases):**
 - Environment: conda via [`environment.yaml`](../environment.yaml); package installed
   editable (`pip install -e .`) from `pyproject.toml`.

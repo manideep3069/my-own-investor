@@ -9,6 +9,10 @@ executes trades **only after explicit approval**.
 Language: **Python**. Orchestration brain: **Claude (Agent SDK / CLI)** on a weekly schedule,
 with urgent-alert interrupts.
 
+> **Status (2026-07-07):** built through Phase 4 (dashboard + gated execution); see
+> [IMPLEMENTATION.md](IMPLEMENTATION.md) for gate outcomes, including the Phase 2
+> finding that a zero-parameter rank composite beat the LightGBM ranker out-of-sample.
+
 ---
 
 ## 1. Vision and guiding principles

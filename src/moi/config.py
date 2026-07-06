@@ -89,7 +89,8 @@ class Settings(BaseSettings):
     ibkr: IBKRSettings = Field(default_factory=IBKRSettings)
 
     # SEC EDGAR requires a contact identity ("Name email") on every request.
-    edgar_identity: str = "Idan Kligvasser kligvasser@gmail.com"
+    # Set MOI_EDGAR_IDENTITY in .env — collectors refuse to run without it.
+    edgar_identity: str | None = None
 
     # Data-source API keys (secrets — set in .env, never committed).
     quiver_api_key: str | None = None
