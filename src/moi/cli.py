@@ -17,10 +17,16 @@ db_app = typer.Typer(help="Database and migrations.", no_args_is_help=True)
 ibkr_app = typer.Typer(help="Interactive Brokers connectivity.", no_args_is_help=True)
 collect_app = typer.Typer(help="Data collectors.", no_args_is_help=True)
 universe_app = typer.Typer(help="Investment universe.", no_args_is_help=True)
+features_app = typer.Typer(help="Feature engineering.", no_args_is_help=True)
+ml_app = typer.Typer(help="Model training and evaluation.", no_args_is_help=True)
+backtest_app = typer.Typer(help="Backtesting.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 app.add_typer(ibkr_app, name="ibkr")
 app.add_typer(collect_app, name="collect")
 app.add_typer(universe_app, name="universe")
+app.add_typer(features_app, name="features")
+app.add_typer(ml_app, name="ml")
+app.add_typer(backtest_app, name="backtest")
 
 log = get_logger(__name__)
 
@@ -229,6 +235,106 @@ def collect_all_cmd() -> None:
 # --------------------------------------------------------------------------- #
 # status
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# features / ml / backtest
+# --------------------------------------------------------------------------- #
+@features_app.command("build")
+def features_build() -> None:
+    """Compute all weekly features (momentum, whales, market) into the feature store."""
+    from moi.db import connect
+    from moi.features.store import build_features
+
+    written = build_features(connect())
+    typer.secho(f"Upserted {written} feature values.", fg=typer.colors.GREEN)
+
+
+@ml_app.command("train")
+def ml_train() -> None:
+    """Evaluate the composite scorer and the LightGBM challenger; print IC metrics."""
+    from moi.db import connect
+    from moi.ml.composite import evaluate_composite
+    from moi.ml.ranker import train_walkforward
+
+    con = connect()
+    _, comp_metrics = evaluate_composite(con)
+    typer.echo("composite (production scorer):")
+    for k, v in comp_metrics.items():
+        typer.echo(f"  {k:22} {v:.4f}")
+
+    result = train_walkforward(con)
+    typer.echo("lightgbm challenger (walk-forward, out-of-sample):")
+    for k, v in result.metrics.items():
+        typer.echo(f"  {k:22} {v:.4f}")
+    if result.metrics["rank_ic_mean"] > comp_metrics["rank_ic_mean"]:
+        typer.secho("challenger beats composite — consider promotion", fg=typer.colors.YELLOW)
+    else:
+        typer.echo("composite remains the production scorer")
+
+
+@ml_app.command("scores")
+def ml_scores() -> None:
+    """Print the latest weekly candidate ranking from the production scorer."""
+    from moi.db import connect
+    from moi.ml.composite import latest_scores
+
+    ranked = latest_scores(connect())
+    week = ranked["week_end"].iloc[0].date() if len(ranked) else "?"
+    typer.echo(f"composite ranking for week ending {week}:")
+    for i, row in ranked.iterrows():
+        typer.echo(f"  {i + 1:>2}. {row.ticker:6} score={row.score:.3f}")
+
+
+@backtest_app.command("run")
+def backtest_run(
+    scorer: str = typer.Option("composite", help="Scorer: composite | lgbm."),
+    top_n: int = typer.Option(12, help="Positions held."),
+    rebalance_weeks: int = typer.Option(4, help="Weeks between rebalances."),
+    cost_bps: float = typer.Option(15.0, help="Per-side cost in basis points."),
+) -> None:
+    """End-to-end: scores → cost-aware backtest vs baselines → report in docs/backtests/."""
+    from datetime import date as _date
+
+    import pandas as pd
+
+    from moi.backtest.engine import BacktestConfig, gate_passed, render_report, run_backtest
+    from moi.config import ROOT
+    from moi.db import connect
+
+    con = connect()
+    if scorer == "lgbm":
+        from moi.ml.ranker import train_walkforward
+
+        wf = train_walkforward(con)
+        predictions, model_metrics, importances = wf.predictions, wf.metrics, wf.importances
+    else:
+        from moi.ml.composite import COMPOSITE_SPEC, evaluate_composite
+
+        predictions, model_metrics = evaluate_composite(con)
+        predictions = predictions.dropna(subset=["label"])
+        importances = pd.Series({feat: abs(sign) for feat, sign in COMPOSITE_SPEC})
+
+    cfg = BacktestConfig(top_n=top_n, rebalance_weeks=rebalance_weeks, cost_bps_per_side=cost_bps)
+    result = run_backtest(con, predictions, cfg)
+
+    report = render_report(result, model_metrics, importances)
+    out_dir = ROOT / "docs" / "backtests" / _date.today().isoformat()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"report-{result.run_id}.md"
+    out_path.write_text(report)
+
+    strat, ew = result.metrics["strategy"], result.metrics["equal_weight_universe"]
+    typer.echo(
+        f"strategy: ann {strat['ann_return']:+.1%}, sharpe {strat['sharpe']:.2f}, "
+        f"maxDD {strat['max_drawdown']:.1%}"
+    )
+    typer.echo(f"eq-weight: ann {ew['ann_return']:+.1%}, sharpe {ew['sharpe']:.2f}")
+    if gate_passed(result.metrics):
+        typer.secho(f"GATE PASSED — report: {out_path}", fg=typer.colors.GREEN)
+    else:
+        typer.secho(f"GATE NOT PASSED — report: {out_path}", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+
 @app.command("status")
 def status() -> None:
     """Print a data-freshness board (green/red per table) and recent runs."""

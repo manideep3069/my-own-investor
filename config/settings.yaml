@@ -5,7 +5,7 @@ env: paper
 log_level: INFO
 log_json: false
 
-price_history_years: 3
+price_history_years: 6
 
 ibkr:
   host: 127.0.0.1

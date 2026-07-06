@@ -51,7 +51,10 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 # Third-party libs without type stubs
 [[tool.mypy.overrides]]
-module = ["ib_async.*", "yfinance.*", "duckdb.*", "fredapi.*", "yaml", "pandas.*", "edgar.*"]
+module = [
+    "ib_async.*", "yfinance.*", "duckdb.*", "fredapi.*", "yaml", "pandas.*",
+    "edgar.*", "scipy.*", "lightgbm.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

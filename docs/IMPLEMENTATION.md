@@ -106,21 +106,31 @@ nightly runs without manual fixes; each collector has tests with mocked HTTP.
 **Goal:** the quant core — features, ranking model, honest backtest, portfolio constructor.
 *This is the phase where the project earns (or loses) its keep. Do not rush the gate.*
 
+> **Gate outcome (2026-07-06): PASSED — with a finding.** The LightGBM ranker had zero
+> out-of-sample IC on this 29-name weekly universe (overfits; first run failed the gate).
+> A zero-parameter **rank composite** (dist_52w_high + ret_52w + ret_26w − size) achieves
+> OOS rank-IC +0.061 (t=3.8), and the top-12 portfolio beats equal-weight after costs
+> (Sharpe 1.74 vs 1.51, ann +74% vs +58%). The composite is the production scorer
+> (`moi/ml/composite.py`); LightGBM remains a challenger that must beat it OOS to be
+> promoted (`moi ml train` reports both). Backtester is a transparent in-house weekly
+> engine instead of vectorbt. Caveats: single bull-regime test window; hand-picked 2026
+> universe implies survivorship bias in *absolute* returns (relative comparison remains fair).
+
 ### Tasks
 - [ ] **2.1 Universe screener v2** — `src/moi/features/screener.py`: automate PLAN §2
   rules (cap $300M–$30B, ADV > $5M, sector match) on top of the seed list; weekly
   snapshot into `universe` (point-in-time membership — critical for backtests)
-- [ ] **2.2 Feature store** — `src/moi/features/` one module per family from PLAN §5:
+- [x] **2.2 Feature store** — `src/moi/features/` one module per family from PLAN §5:
   - `momentum.py`, `fundamentals.py`, `whales.py`, `macro_theme.py`
   - builder writes `features_weekly` (ticker, week, feature, value) with an
     `as_of` discipline: every feature computed only from data available that Friday
-- [ ] **2.3 Labels** — 13-week forward return relative to universe median;
+- [x] **2.3 Labels** — 13-week forward return relative to universe median;
   `src/moi/ml/labels.py`
-- [ ] **2.4 Ranking model** — `src/moi/ml/ranker.py`:
+- [x] **2.4 Ranking model** — `src/moi/ml/ranker.py`:
   - LightGBM cross-sectional ranker; purged + embargoed walk-forward CV
     (`src/moi/ml/cv.py`); SHAP feature attribution stored per run
   - experiment notebook `notebooks/01_ranker.ipynb`, production entry `moi ml train`
-- [ ] **2.5 Backtester** — `src/moi/backtest/engine.py`:
+- [x] **2.5 Backtester** — `src/moi/backtest/engine.py`:
   - vectorbt weekly rebalance sim with IBKR-realistic costs (commission + spread by
     ADV bucket); baselines: equal-weight universe, SMH, SPY
   - `moi backtest run` → metrics report (IC, decile spread, Sharpe, maxDD, turnover)
