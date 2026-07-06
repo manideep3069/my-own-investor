@@ -1,0 +1,14 @@
+# Committed default settings. Override locally in config/settings.local.yaml (gitignored)
+# and put secrets in .env (prefixed MOI_, e.g. MOI_QUIVER_API_KEY=...).
+
+env: paper
+log_level: INFO
+log_json: false
+
+price_history_years: 3
+
+ibkr:
+  host: 127.0.0.1
+  port: 7497        # TWS paper. IB Gateway paper = 4002. Live = 7496 / 4001.
+  client_id: 17
+  readonly: true    # Phase 0: connection is read-only; no orders possible.

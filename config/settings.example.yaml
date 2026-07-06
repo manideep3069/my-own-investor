@@ -1,0 +1,7 @@
+# Copy to config/settings.local.yaml for machine-specific overrides (gitignored).
+# Only include keys you want to change; they deep-merge over config/settings.yaml.
+
+# ibkr:
+#   port: 4002        # if you run IB Gateway (paper) instead of TWS
+#   account: DU1234567
+#   client_id: 42

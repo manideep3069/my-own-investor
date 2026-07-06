@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moi"
+version = "0.1.0"
+description = "my-own-investor — AI-assisted, human-approved portfolio copilot for Interactive Brokers"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Idan Kligvasser" }]
+dependencies = [
+    # Runtime deps are installed via conda (environment.yaml). Listed here so the
+    # package metadata is accurate and `pip install -e .` works in a plain venv too.
+    "pydantic>=2",
+    "pydantic-settings",
+    "pyyaml",
+    "structlog",
+    "typer",
+    "duckdb",
+    "pandas",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "respx", "ruff", "mypy", "pre-commit"]
+
+[project.scripts]
+moi = "moi.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+moi = ["migrations/*.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["moi"]
+mypy_path = "src"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+# Third-party libs without type stubs
+[[tool.mypy.overrides]]
+module = ["ib_async.*", "yfinance.*", "duckdb.*", "fredapi.*", "yaml", "pandas.*", "edgar.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"

@@ -1,0 +1,55 @@
+# Seed investment universe — hand-curated (Phase 0). The automated screener (Phase 2)
+# will maintain this list against the rules in docs/PLAN.md §2. Tickers here are the
+# starting candidate pool for the theme: growth-driven small/mid-cap hardware for
+# computing, data centers, and connectivity.
+#
+# `benchmarks` are collected for relative-strength features and backtest baselines;
+# they are never tradable candidates.
+
+benchmarks:
+  - {ticker: SPY,  name: "S&P 500 ETF"}
+  - {ticker: QQQ,  name: "Nasdaq 100 ETF"}
+  - {ticker: SMH,  name: "VanEck Semiconductor ETF"}
+  - {ticker: SOXX, name: "iShares Semiconductor ETF"}
+
+sub_sectors:
+  ai_compute_silicon:
+    - {ticker: ALAB, name: "Astera Labs"}
+    - {ticker: CRDO, name: "Credo Technology"}
+    - {ticker: LSCC, name: "Lattice Semiconductor"}
+    - {ticker: SITM, name: "SiTime"}
+    - {ticker: MRVL, name: "Marvell Technology"}
+    - {ticker: RMBS, name: "Rambus"}
+    - {ticker: SMCI, name: "Super Micro Computer"}
+
+  optical_interconnect:
+    - {ticker: COHR, name: "Coherent"}
+    - {ticker: LITE, name: "Lumentum"}
+    - {ticker: AAOI, name: "Applied Optoelectronics"}
+    - {ticker: FN,   name: "Fabrinet"}
+    - {ticker: POET, name: "POET Technologies"}
+
+  datacenter_power_cooling:
+    - {ticker: VRT,  name: "Vertiv Holdings"}
+    - {ticker: MOD,  name: "Modine Manufacturing"}
+    - {ticker: POWL, name: "Powell Industries"}
+    - {ticker: NVT,  name: "nVent Electric"}
+    - {ticker: BE,   name: "Bloom Energy"}
+
+  networking_connectivity:
+    - {ticker: CIEN, name: "Ciena"}
+    - {ticker: EXTR, name: "Extreme Networks"}
+    - {ticker: CALX, name: "Calix"}
+
+  memory_storage_substrates:
+    - {ticker: STX,  name: "Seagate Technology"}
+    - {ticker: WDC,  name: "Western Digital"}
+    - {ticker: NVMI, name: "Nova Ltd"}
+
+  test_fab_equipment_materials:
+    - {ticker: ONTO, name: "Onto Innovation"}
+    - {ticker: ACMR, name: "ACM Research"}
+    - {ticker: CAMT, name: "Camtek"}
+    - {ticker: UCTT, name: "Ultra Clean Holdings"}
+    - {ticker: ICHR, name: "Ichor Holdings"}
+    - {ticker: FORM, name: "FormFactor"}
