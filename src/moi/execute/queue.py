@@ -15,12 +15,23 @@ DECISIONS = {"APPROVED", "REJECTED", "SNOOZED"}
 
 
 def decide(con: duckdb.DuckDBPyConnection, suggestion_id: str, decision: str) -> bool:
-    """Transition a PENDING suggestion. Returns False if not found or not pending."""
+    """Transition a PENDING/SNOOZED suggestion; also allows revoking an APPROVED one
+    (APPROVED → REJECTED) as long as no order has been sent for it. Returns False
+    when the transition is not allowed."""
     decision = decision.upper()
     if decision not in DECISIONS:
         raise ValueError(f"Invalid decision {decision!r}; must be one of {sorted(DECISIONS)}")
     row = con.execute("SELECT status FROM suggestions WHERE id = ?", [suggestion_id]).fetchone()
-    if row is None or row[0] not in ("PENDING", "SNOOZED"):
+    if row is None:
+        return False
+    if row[0] == "APPROVED" and decision == "REJECTED":
+        has_order = con.execute(
+            "SELECT 1 FROM orders WHERE suggestion_id = ? AND status != 'error'",
+            [suggestion_id],
+        ).fetchone()
+        if has_order:
+            return False
+    elif row[0] not in ("PENDING", "SNOOZED"):
         return False
     con.execute(
         "UPDATE suggestions SET status = ?, decided_at = ? WHERE id = ?",

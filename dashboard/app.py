@@ -9,6 +9,8 @@ Run: `moi dashboard`  (or `streamlit run dashboard/app.py`)
 
 from __future__ import annotations
 
+import contextlib
+
 import streamlit as st
 
 st.set_page_config(page_title="my-own-investor", page_icon="📈", layout="wide")
@@ -19,18 +21,26 @@ from common import DBBusy, execute_write, q  # noqa: E402
 
 
 def _sidebar() -> None:
+    from moi.execute.executor import KILL_FILE, set_kill_file, set_kill_switch
+
+    kill_on = KILL_FILE.exists()
+    db_readable = True
     try:
         kill = q("SELECT value FROM controls WHERE key = 'kill_switch'")
-        kill_on = not kill.empty and kill.iloc[0, 0] == "on"
-        if kill_on:
-            st.sidebar.error("KILL SWITCH ON — trading blocked")
-        if st.sidebar.button("Kill switch " + ("OFF" if kill_on else "ON")):
-            from moi.execute.executor import set_kill_switch
-
-            execute_write(lambda con: set_kill_switch(con, not kill_on))
-            st.rerun()
+        kill_on = kill_on or (not kill.empty and kill.iloc[0, 0] == "on")
     except DBBusy:
+        db_readable = False
         st.sidebar.caption("⏳ database busy — job running")
+
+    if kill_on:
+        st.sidebar.error("KILL SWITCH ON — trading blocked")
+    if st.sidebar.button("Kill switch " + ("OFF" if kill_on else "ON")):
+        # The file sentinel always works; the DB flag follows when unlocked.
+        set_kill_file(not kill_on)
+        if db_readable:
+            with contextlib.suppress(DBBusy):
+                execute_write(lambda con: set_kill_switch(con, not kill_on))
+        st.rerun()
     st.sidebar.caption("Model output — not financial advice.")
 
 

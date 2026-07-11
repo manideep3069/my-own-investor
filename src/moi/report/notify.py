@@ -24,6 +24,10 @@ def send(text: str) -> bool:
         )
         resp.raise_for_status()
         return True
+    except httpx.HTTPStatusError as exc:
+        # Never log str(exc): the request URL embeds the bot token.
+        log.warning("notify_failed", status=exc.response.status_code)
+        return False
     except Exception as exc:
-        log.warning("notify_failed", error=str(exc)[:120])
+        log.warning("notify_failed", error=type(exc).__name__)
         return False

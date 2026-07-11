@@ -10,6 +10,7 @@ rest of the app (CLI, collectors) does not need to be async-aware yet.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -42,9 +43,13 @@ def ib_connection(settings: IBKRSettings | None = None) -> Iterator[IB]:
 
     cfg = settings or get_settings().ibkr
     ib = IB()
-    log.info("ibkr_connecting", host=cfg.host, port=cfg.port, client_id=cfg.client_id)
+    # Per-process offset: two moi processes (e.g. a dashboard job overlapping the
+    # nightly collect) would otherwise both claim the same clientId and get IB
+    # error 326 ("client id already in use").
+    client_id = cfg.client_id + os.getpid() % 900
+    log.info("ibkr_connecting", host=cfg.host, port=cfg.port, client_id=client_id)
     try:
-        ib.connect(cfg.host, cfg.port, clientId=cfg.client_id, readonly=cfg.readonly, timeout=10)
+        ib.connect(cfg.host, cfg.port, clientId=client_id, readonly=cfg.readonly, timeout=10)
     except (ConnectionRefusedError, TimeoutError, OSError) as exc:
         raise ConnectionError(
             f"Could not reach IB Gateway/TWS at {cfg.host}:{cfg.port}. "

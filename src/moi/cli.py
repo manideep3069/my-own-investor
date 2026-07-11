@@ -361,28 +361,68 @@ def reject(suggestion_id: str) -> None:
 
 @app.command("kill")
 def kill(state: str = typer.Argument(..., help="on | off")) -> None:
-    """Set the kill switch. 'on' blocks all order placement immediately."""
-    from moi.db import connect
-    from moi.execute.executor import set_kill_switch
+    """Set the kill switch. 'on' blocks all order placement immediately.
+
+    Always writes the data/KILL file sentinel (works even while another process
+    holds the database lock); the DB flag is updated best-effort.
+    """
+    import duckdb as _duckdb
+
+    from moi.execute.executor import set_kill_file, set_kill_switch
 
     if state not in ("on", "off"):
         typer.secho("state must be 'on' or 'off'", fg=typer.colors.RED)
         raise typer.Exit(code=1)
-    set_kill_switch(connect(), state == "on")
+    on = state == "on"
+    set_kill_file(on)  # takes effect immediately, no lock needed
+    try:
+        from moi.db import connect
+
+        set_kill_switch(connect(), on)
+    except _duckdb.Error:
+        typer.secho(
+            "database is locked — file sentinel set; DB flag will sync on next write",
+            fg=typer.colors.YELLOW,
+        )
     typer.secho(
         f"Kill switch {state.upper()}.",
-        fg=typer.colors.RED if state == "on" else typer.colors.GREEN,
+        fg=typer.colors.RED if on else typer.colors.GREEN,
     )
 
 
 @app.command("execute")
-def execute() -> None:
-    """Place orders for APPROVED suggestions (paper account only unless allow_live)."""
+def execute(
+    yes: bool = typer.Option(False, "--yes", help="Skip the live-account confirmation prompt."),
+) -> None:
+    """Place orders for APPROVED suggestions (paper account only unless allow_live).
+
+    On a non-paper account the full batch (orders + total dollars) is shown and must
+    be confirmed interactively before anything is sent, unless --yes is passed.
+    """
     from moi.db import connect
-    from moi.execute.executor import SafetyError, execute_approved
+    from moi.execute.executor import PlannedOrder, SafetyError, execute_approved
+
+    def confirm(account: str, plans: list[PlannedOrder]) -> bool:
+        total = sum(p.est_value for p in plans)
+        live = not account.startswith("DU")
+        typer.secho(
+            f"about to submit {len(plans)} order(s) on account {account}"
+            + (" (LIVE MONEY)" if live else " (paper)"),
+            fg=typer.colors.RED if live else typer.colors.CYAN,
+            bold=live,
+        )
+        for p in plans:
+            typer.echo(
+                f"  {p.side:4} {p.quantity:>5} {p.ticker:6} limit {p.limit_price}"
+                f"  ≈ ${p.est_value:,.0f}"
+            )
+        typer.echo(f"  total ≈ ${total:,.0f}")
+        if not live or yes:
+            return True
+        return bool(typer.confirm("Submit these LIVE orders?", default=False))
 
     try:
-        results = execute_approved(connect())
+        results = execute_approved(connect(), confirm=confirm)
     except (SafetyError, ConnectionError) as exc:
         typer.secho(f"BLOCKED: {exc}", fg=typer.colors.RED)
         raise typer.Exit(code=1) from exc

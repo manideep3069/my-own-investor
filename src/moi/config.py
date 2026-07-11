@@ -80,7 +80,6 @@ class Settings(BaseSettings):
         # Precedence, highest first: real env vars > .env file > YAML files > defaults.
         return (init_settings, env_settings, dotenv_settings, _YamlSource(settings_cls))
 
-    env: str = "paper"  # "paper" | "live"
     log_level: str = "INFO"
     log_json: bool = False
 

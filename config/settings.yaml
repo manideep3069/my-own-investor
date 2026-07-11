@@ -1,7 +1,6 @@
 # Committed default settings. Override locally in config/settings.local.yaml (gitignored)
 # and put secrets in .env (prefixed MOI_, e.g. MOI_QUIVER_API_KEY=...).
 
-env: paper
 log_level: INFO
 log_json: false
 

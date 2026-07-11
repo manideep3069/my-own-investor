@@ -58,6 +58,8 @@ def run_weekly(
     news = news_digest(con, list(target))
 
     changed = [a for a in actions if a.action in ("BUY", "SELL", "ADD", "TRIM")]
+    for a in changed:
+        a.score = scores.get(a.ticker)
     if with_llm and changed:
         from moi.orchestrator.agents import ask
 
@@ -86,7 +88,12 @@ def run_weekly(
     else:
         macro_txt, whales_txt, summary = "", "", ""
 
-    store_suggestions(con, week, changed)
+    # A fresh-build diff (positions unknown) must never reach the queue: its BUYs
+    # start from 0% and would double-buy positions the account already holds.
+    if positions_known:
+        store_suggestions(con, week, changed)
+    else:
+        log.warning("suggestions_not_stored", reason="positions unavailable (TWS down)")
 
     lines = [
         f"# Weekly report — week ending {week.date()}",
@@ -120,11 +127,19 @@ def run_weekly(
                 f"| {a.action} | {a.ticker} | {a.current_weight:.1%} | {a.target_weight:.1%} "
                 f"| {a.thesis or '-'} | {a.bear_case or '-'} |"
             )
-        lines += [
-            "",
-            f"{len(changed)} suggestions queued as PENDING — approve via dashboard/CLI.",
-            "",
-        ]
+        if positions_known:
+            lines += [
+                "",
+                f"{len(changed)} suggestions queued as PENDING — approve via dashboard/CLI.",
+                "",
+            ]
+        else:
+            lines += [
+                "",
+                "**⚠ NOT queued:** positions were unavailable (TWS down), so these are a "
+                "fresh-build sketch — start TWS and rerun `moi weekly` to get real deltas.",
+                "",
+            ]
     else:
         lines += ["No changes proposed this week.", ""]
 
