@@ -9,7 +9,9 @@ executes trades **only after explicit approval**.
 Language: **Python**. Orchestration brain: **Claude (Agent SDK / CLI)** on a weekly schedule,
 with urgent-alert interrupts.
 
-> **Status (2026-07-07):** built through Phase 4 (dashboard + gated execution); see
+> **Status (2026-07-11):** built through Phase 4 (dashboard + gated execution), plus
+> post-plan additions: the `moi run` one-shot, holdings analytics (Portfolio +
+> X-ray), and a Mission Control operations page (§9). See
 > [IMPLEMENTATION.md](IMPLEMENTATION.md) for gate outcomes, including the Phase 2
 > finding that a zero-parameter rank composite beat the LightGBM ranker out-of-sample.
 
@@ -192,21 +194,40 @@ pushes an alert.
 
 ## 9. Dashboard
 
-**Streamlit** (pure Python, fastest to build; migrate to FastAPI+React later only if needed).
-Pages:
+**Streamlit** (pure Python, fastest to build; migrate to FastAPI+React later only if
+needed), split into `app.py` (navigation), `mission.py`, `views.py`, and `common.py`,
+with the operational logic in `src/moi/ops.py` so it stays unit-testable. Pages are
+grouped into three sections:
 
-1. **Home / Weekly report** — this week's narrative and action cards
-2. **Approval queue** — pending suggestions with one-click approve/reject
-3. **Portfolio** — holdings with P&L vs cost, trailing returns (1W–1Y) vs SPY,
+**Operate**
+1. **Mission control** (landing page) — health strip (report age, pending queue,
+   snapshot age, source freshness); one-click commands (collect, report, full
+   `moi run`, urgent triggers, fill sync, IBKR ping, model eval) that run as
+   detached `python -m moi` subprocesses with a live log tail; a connections board
+   (broker, EDGAR, FRED, congress, agents, scheduler, trading mode) with green/red
+   per dependency; data-source freshness merged with each collector's last run;
+   recent run history
+2. **Weekly report** — this week's narrative and action cards, downloadable
+3. **Approval queue** — pending suggestions with one-click approve/reject/snooze
+   and the approximate dollar size of each trade
+
+**My money**
+4. **Portfolio** — holdings with P&L vs cost, trailing returns (1W–1Y) vs SPY,
    indexed relative-performance charts, weights
-3b. **Holdings X-ray** — frozen-weights book behavior: growth vs SPY/QQQ/SMH,
+5. **Holdings X-ray** — frozen-weights book behavior: growth vs SPY/QQQ/SMH,
    beta/vol/Sharpe/drawdown per holding, return contribution, correlation heatmap,
    computed plain-language insights (concentration, lockstep pairs, dead weight)
-4. **Candidates** — ranked universe table with feature drill-down per ticker
-5. **Whales** — tracked investors' latest moves and overlap with your book
-6. **Trends** — Polymarket panels, macro regime, correlation heatmap
-7. **Model health** — IC, decile spreads, backtest vs live, drift alerts
-8. **Journal** — every suggestion, decision, and order ever made (auditability)
+6. **Journal** — every suggestion, decision, and order ever made (auditability)
+
+**Research**
+7. **Candidates** — ranked universe table with scorer inputs, held-ticker markers
+8. **Whales** — tracked investors' latest moves and overlap with your book
+9. **Trends** — Polymarket probabilities, FRED macro series
+10. **Model health** — composite-vs-challenger metrics, rank-IC history, backtests
+
+Because DuckDB is single-writer, the dashboard never runs pipeline code in-process:
+Mission control launches one background job at a time, and data pages degrade to a
+"database busy" notice while a job holds the write lock.
 
 The weekly report is also rendered to markdown/HTML and delivered by email/Telegram.
 

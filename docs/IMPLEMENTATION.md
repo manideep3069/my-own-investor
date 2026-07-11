@@ -4,7 +4,7 @@ Companion to [PLAN.md](PLAN.md) (architecture and rationale). This document is t
 build order: phases, tasks, files, and the acceptance gate that must pass before the
 next phase starts.
 
-> **Status (2026-07-07): Phases 0–4 complete, all gates passed.** Phase 5
+> **Status (2026-07-11): Phases 0–4 complete, all gates passed.** Phase 5
 > (evaluation) is the current phase — it is calendar time, not code:
 > weekly runs, queue decisions, and live-vs-backtest tracking for 8–12 weeks.
 >
@@ -19,6 +19,16 @@ next phase starts.
 > - Owner opted to skip the paper stage: `MOI_ALLOW_LIVE=true` with the
 >   $8k/order + $30k/day caps as the binding rails; reports/ made private
 >   and purged from git history
+>
+> **Post-plan additions (2026-07-11):**
+> - Holdings X-ray page (`src/moi/report/xray.py`): frozen-weights risk, contribution,
+>   correlation, and computed plain-language insights
+> - `moi run` — one-shot collect → report → urgent triggers → queue summary
+> - Dashboard overhaul: grouped `st.navigation` (Operate / My money / Research) and a
+>   **Mission control** landing page — connection board, data-source freshness ×
+>   last-run board, run history, and one-click pipeline commands running as detached
+>   `python -m moi` subprocesses (job control in `src/moi/ops.py`, unit-tested);
+>   data pages degrade gracefully while a job holds the single-writer DB lock
 
 **Working conventions (all phases):**
 - Environment: conda via [`environment.yaml`](../environment.yaml); package installed
@@ -205,9 +215,10 @@ unattended.
 **Goal:** the friendly UI and the only path to execution — approve on screen, paper-trade.
 
 ### Tasks
-- [x] **4.1 Streamlit app** — `dashboard/app.py` + `dashboard/pages/` implementing the
-  8 pages from PLAN §9 (Home/report, Approval queue, Portfolio, Candidates, Whales,
-  Trends, Model health, Journal); read-only against DuckDB except the queue
+- [x] **4.1 Streamlit app** — `dashboard/` (`app.py` navigation, `mission.py`,
+  `views.py`, `common.py`) implementing the pages from PLAN §9; read-only against
+  DuckDB except the approval queue and kill switch, with short-lived connections
+  (single-writer DB)
 - [x] **4.2 Approval queue** — Approve / Edit size / Reject / Snooze buttons writing
   status transitions to `suggestions` (`PENDING → APPROVED/REJECTED/SNOOZED`),
   with the full card: action, size, limit price, thesis, bear-case, confidence,
