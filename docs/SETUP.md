@@ -50,12 +50,19 @@ moi db init            # create DuckDB + apply migrations
 moi collect all        # all sources; congress/macro skip without keys
 moi status             # freshness board — aim for green
 moi weekly             # full pipeline + agent-written report (or --no-llm)
-moi dashboard          # browse report + approval queue
+moi dashboard          # browse it — start at Mission control
 ```
 
+From here on you rarely need the terminal: the dashboard's **Mission control** page
+shows every connection and data source green/red and runs any pipeline command
+(collect, report, full `moi run`, fill sync, …) as a background job with a live log
+(written to `data/joblogs/`).
+
 Notes:
-- **DuckDB is single-writer** — don't run two `moi collect ...` processes at once.
-  `moi collect all` is sequential for this reason; dashboard reads are short-lived.
+- **DuckDB is single-writer** — don't run two `moi` pipeline processes at once.
+  `moi collect all` is sequential for this reason; dashboard reads are short-lived,
+  and Mission control launches one job at a time. While a job runs, data pages show
+  a "database busy" notice and resume when it finishes.
 - Price collection is incremental; after editing `config/universe.yaml`, run
   `moi collect prices --full` once to backfill new tickers.
 - Streamlit's first launch asks for an email on stdin; this repo's setup writes

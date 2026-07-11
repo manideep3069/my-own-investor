@@ -40,6 +40,9 @@ news, FRED         red-team bear cases, PM summary   caps)      → moi execute
 - **Accountability** — the dashboard tracks the real account: per-holding P&L and
   trailing returns (1W–1Y) vs SPY, plus a journal of every suggestion, decision, and
   order ever made.
+- **Operations** — a Mission Control page shows every connection (broker, EDGAR, FRED,
+  agents, scheduler) green/red, a data-freshness board, and one-click buttons that run
+  the pipeline as background jobs with a live log.
 
 ## Safety model
 
@@ -74,7 +77,7 @@ Full setup (IBKR gateway, API keys, nightly/weekly scheduling): **[docs/SETUP.md
 | `moi run` | **The one-shot:** collect all data → report + suggestions → urgent triggers |
 | `moi collect all` | Refresh every data source (nightly job) |
 | `moi weekly [--collect]` | Report pipeline only (what `moi run` wraps) |
-| `moi dashboard` | Streamlit UI: report, approval queue, holdings performance, whales, trends |
+| `moi dashboard` | Streamlit UI — Mission control (status, one-click pipeline), report, approval queue, holdings, research |
 | `moi ml scores` / `moi ml train` | Latest ranking / composite-vs-challenger evaluation |
 | `moi backtest run` | Walk-forward backtest vs baselines (gated) |
 | `moi approve/reject <id>` | Decide a suggestion (also available in the UI) |
