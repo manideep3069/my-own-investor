@@ -48,12 +48,22 @@ news, FRED         red-team bear cases, PM summary   caps)      → moi execute
 
 Enforced in code, covered by tests, and proven against a live gateway:
 
-1. Only `APPROVED` suggestions are executable — approval is a human click, always
+1. Only `APPROVED` suggestions are executable — approval is a human click, always —
+   and approvals expire after 7 days (stale theses don't trade)
 2. Ticker whitelist: active universe members only, benchmark ETFs excluded
 3. No shorting — sells capped at held quantity
-4. Per-order and per-day dollar caps
-5. A kill switch (`moi kill on`) that blocks everything
-6. Paper accounts (`DU…`) only, unless `allow_live` is explicitly set
+4. Per-order and per-day dollar caps (an order whose fate is unknown after a
+   mid-submit failure keeps consuming the daily budget until reconciled)
+5. A kill switch (`moi kill on` / dashboard) that blocks everything — backed by a
+   filesystem sentinel so it works even while the database is locked
+6. Paper accounts (`DU…`) only, unless `allow_live` is explicitly set — and live
+   batches are printed in full and require typed confirmation
+7. Optional arming rail: with `MOI_TRADING_UNLOCK_KEY` set, live execution also
+   requires `moi unlock` (or the dashboard unlock), which opens a 60-minute window
+8. Orders are sized from **live broker state** at execution time (held quantity ×
+   latest close), never from week-old stored weights — a stale or fresh-build
+   suggestion cannot double-buy an existing position; prices older than 7 days refuse
+   to size anything
 
 ## Quickstart
 
@@ -81,10 +91,11 @@ Full setup (IBKR gateway, API keys, nightly/weekly scheduling): **[docs/SETUP.md
 | `moi ml scores` / `moi ml train` | Latest ranking / composite-vs-challenger evaluation |
 | `moi backtest run` | Walk-forward backtest vs baselines (gated) |
 | `moi approve/reject <id>` | Decide a suggestion (also available in the UI) |
-| `moi execute` | Place approved orders (paper only; all rails apply) |
-| `moi orders --sync` | Reconcile fills with the broker |
-| `moi watch` | Urgent triggers: big moves, fresh whale filings, data quality |
-| `moi kill on\|off` | Kill switch |
+| `moi execute` | Place approved orders (all rails apply; live batches need confirmation) |
+| `moi unlock` / `moi lock` | Open/close the timed live-execution window |
+| `moi orders --sync` | Reconcile fills with the broker (incl. GTC fills from prior sessions) |
+| `moi watch` | Urgent triggers: big moves, whale filings, data gaps, stuck orders |
+| `moi kill on\|off` | Kill switch (works even while the DB is locked) |
 | `moi status` | Data-freshness board |
 
 ## Project documentation

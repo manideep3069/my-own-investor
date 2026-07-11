@@ -29,6 +29,21 @@ next phase starts.
 >   last-run board, run history, and one-click pipeline commands running as detached
 >   `python -m moi` subprocesses (job control in `src/moi/ops.py`, unit-tested);
 >   data pages degrade gracefully while a job holds the single-writer DB lock
+> - **Second full audit (4 parallel review agents, ~40 findings, all fixed):**
+>   execution safety (live-state sizing kills fresh-build double-buys; 'unknown'
+>   order status after mid-submit failures; approval expiry + revocation; sleeve
+>   NLV; price-freshness rail; batch confirmation for live accounts; GTC fill
+>   reconciliation; kill-switch file sentinel; per-process IBKR clientId), the
+>   **trading unlock window** (`MOI_TRADING_UNLOCK_KEY`, `moi unlock`, 60 min),
+>   data layer (per-ticker incremental prices with split/dividend self-healing;
+>   13F amendment restatement + EXITED rows; Form 4 amendment dedup; congress/news
+>   dedup keys, migration 007; 'partial' run status; per-ticker price-gap
+>   detector), quant (composite requires all features; floor sector caps; regime
+>   staleness fallback; additive X-ray contribution; backtest entry cost +
+>   `--lag-weeks`), ops (job concurrency guard + DB-lock pre-probe; real exit
+>   codes; cancel/force-clear; lock-wait for scheduled jobs; alert dedup +
+>   stuck-order/stale-approval triggers), and gitleaks pre-commit scanning.
+>   Tests 69 → 105.
 
 **Working conventions (all phases):**
 - Environment: conda via [`environment.yaml`](../environment.yaml); package installed

@@ -25,6 +25,7 @@ Edit `.env`:
 | `MOI_IBKR__PORT` | if not default | 7496 TWS live · 7497 TWS paper · 4001/4002 Gateway |
 | `MOI_TELEGRAM_BOT_TOKEN` / `MOI_TELEGRAM_CHAT_ID` | optional | urgent alerts |
 | `MOI_ALLOW_LIVE` | opt-in, default false | lets `moi execute` trade a live (`U…`) account; per-order/daily caps still apply |
+| `MOI_TRADING_UNLOCK_KEY` | recommended for live | arming rail: live execution requires `moi unlock` (or the dashboard unlock), opening a 60-min window — generate with `openssl rand -hex 24` |
 
 Machine-specific non-secret overrides go in `config/settings.local.yaml`
 (see `config/settings.example.yaml`). Precedence: env vars > `.env` >
@@ -60,11 +61,17 @@ shows every connection and data source green/red and runs any pipeline command
 
 Notes:
 - **DuckDB is single-writer** — don't run two `moi` pipeline processes at once.
-  `moi collect all` is sequential for this reason; dashboard reads are short-lived,
-  and Mission control launches one job at a time. While a job runs, data pages show
-  a "database busy" notice and resume when it finishes.
-- Price collection is incremental; after editing `config/universe.yaml`, run
-  `moi collect prices --full` once to backfill new tickers.
+  Mission control refuses to launch a job while another process holds the lock, the
+  scheduled jobs wait up to 15 minutes for a competing writer, and data pages degrade
+  to a "database busy" notice while a job runs.
+- Price collection is incremental **per ticker** (new/lagging tickers heal
+  automatically) and self-repairs after splits/dividend restatements by comparing the
+  refetch overlap and re-pulling a diverged ticker's full history. `--full` remains
+  for a complete rebuild.
+- **Executing live orders:** `moi execute` prints the whole batch and asks for typed
+  confirmation on a live account; with `MOI_TRADING_UNLOCK_KEY` set, you must also
+  `moi unlock` (or use the dashboard sidebar) first — the window auto-relocks after
+  60 minutes. `moi kill on` (or `data/KILL`) blocks everything regardless.
 - Streamlit's first launch asks for an email on stdin; this repo's setup writes
   `~/.streamlit/credentials.toml` to skip it (done automatically if you used the
   bundled instructions).
