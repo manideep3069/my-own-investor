@@ -55,3 +55,32 @@ def test_whale_filing_alert(db) -> None:
     alerts = whale_filing_alerts(db)
     assert len(alerts) == 1
     assert "COHR" in alerts[0].message
+
+
+def test_alerts_dedup_within_cooldown(db) -> None:
+    """The same alert must not re-fire on consecutive runs."""
+    from moi.orchestrator.watch import Alert, _fresh
+
+    first = _fresh(db, [Alert("data_quality", "news_items is stale", key="news_items")])
+    assert len(first) == 1
+    again = _fresh(db, [Alert("data_quality", "news_items is stale", key="news_items")])
+    assert again == []
+
+
+def test_stuck_order_and_stale_approval_alerts(db) -> None:
+    from datetime import datetime, timedelta
+
+    from moi.orchestrator.watch import execution_alerts
+
+    db.execute(
+        """INSERT INTO orders (order_id, suggestion_id, created_at, ticker, side, quantity,
+           est_value, status) VALUES ('o1', 's1', ?, 'ALAB', 'BUY', 1, 100, 'submitted')""",
+        [datetime.now() - timedelta(hours=48)],
+    )
+    db.execute(
+        """INSERT INTO suggestions (id, created_at, week_end, ticker, action, status, decided_at)
+           VALUES ('s2', ?, '2026-07-01', 'CRDO', 'BUY', 'APPROVED', ?)""",
+        [datetime.now() - timedelta(days=5), datetime.now() - timedelta(days=5)],
+    )
+    kinds = {a.kind for a in execution_alerts(db)}
+    assert kinds == {"stuck_order", "stale_approval"}

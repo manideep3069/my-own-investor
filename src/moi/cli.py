@@ -285,6 +285,9 @@ def backtest_run(
     top_n: int = typer.Option(12, help="Positions held."),
     rebalance_weeks: int = typer.Option(4, help="Weeks between rebalances."),
     cost_bps: float = typer.Option(15.0, help="Per-side cost in basis points."),
+    lag_weeks: int = typer.Option(
+        0, help="Score→trade delay in weeks (1 stress-tests the report→Monday lag)."
+    ),
 ) -> None:
     """End-to-end: scores → cost-aware backtest vs baselines → report in docs/backtests/."""
     from datetime import date as _date
@@ -308,7 +311,12 @@ def backtest_run(
         predictions = predictions.dropna(subset=["label"])
         importances = pd.Series({feat: abs(sign) for feat, sign in COMPOSITE_SPEC})
 
-    cfg = BacktestConfig(top_n=top_n, rebalance_weeks=rebalance_weeks, cost_bps_per_side=cost_bps)
+    cfg = BacktestConfig(
+        top_n=top_n,
+        rebalance_weeks=rebalance_weeks,
+        cost_bps_per_side=cost_bps,
+        lag_weeks=lag_weeks,
+    )
     result = run_backtest(con, predictions, cfg)
 
     report = render_report(result, model_metrics, importances)
@@ -388,6 +396,32 @@ def kill(state: str = typer.Argument(..., help="on | off")) -> None:
         f"Kill switch {state.upper()}.",
         fg=typer.colors.RED if on else typer.colors.GREEN,
     )
+
+
+@app.command("unlock")
+def unlock() -> None:
+    """Open the timed live-execution window (prompts for MOI_TRADING_UNLOCK_KEY)."""
+    from moi.execute.executor import SafetyError, unlock_trading
+
+    key = typer.prompt("Unlock key", hide_input=True)
+    try:
+        until = unlock_trading(key)
+    except SafetyError as exc:
+        typer.secho(f"REFUSED: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    typer.secho(
+        f"Trading unlocked until {until:%H:%M} — `moi lock` closes it early.",
+        fg=typer.colors.YELLOW,
+    )
+
+
+@app.command("lock")
+def lock_cmd() -> None:
+    """Close the live-execution window immediately."""
+    from moi.execute.executor import lock_trading
+
+    lock_trading()
+    typer.secho("Trading locked.", fg=typer.colors.GREEN)
 
 
 @app.command("execute")

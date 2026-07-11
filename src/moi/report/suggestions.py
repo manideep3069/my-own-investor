@@ -13,7 +13,7 @@ from moi.runlog import new_run_id
 
 log = get_logger(__name__)
 
-WEIGHT_BAND = 0.015  # ignore drifts smaller than 1.5% of the book
+WEIGHT_BAND = 0.02  # ignore drifts smaller than 2% of the book (churn hysteresis)
 
 
 @dataclass

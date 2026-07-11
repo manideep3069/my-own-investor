@@ -30,6 +30,10 @@ class BacktestConfig:
     top_n: int = 10
     rebalance_weeks: int = 4
     cost_bps_per_side: float = 15.0  # commission + half-spread estimate for liquid names
+    # Weeks between a score being available and the trade happening. 0 = trade at the
+    # scoring week's close (standard, matches published results); 1 stress-tests the
+    # real Saturday-report → next-week execution lag.
+    lag_weeks: int = 0
 
 
 @dataclass
@@ -81,6 +85,13 @@ def run_backtest(
 
     all_weeks = [w for w in weekly_rets.index if pred_weeks[0] <= w <= pred_weeks[-1]]
     scores_by_week = {w: g for w, g in predictions.groupby("week_end")}
+    if cfg.lag_weeks:
+        index_of = {w: i for i, w in enumerate(all_weeks)}
+        scores_by_week = {
+            all_weeks[index_of[w] + cfg.lag_weeks]: g
+            for w, g in scores_by_week.items()
+            if w in index_of and index_of[w] + cfg.lag_weeks < len(all_weeks)
+        }
 
     for week, next_week in pairwise(all_weeks):
         cost = 0.0
@@ -88,11 +99,13 @@ def run_backtest(
             ranked = scores_by_week[week].sort_values("score", ascending=False)
             new_holdings = [t for t in ranked["ticker"].tolist() if t in tickers][: cfg.top_n]
             if new_holdings:
-                changed = (
-                    len(set(new_holdings) ^ set(holdings)) / 2 if holdings else len(new_holdings)
-                )
-                turnover = changed / max(len(new_holdings), 1)
-                cost = 2 * turnover * cfg.cost_bps_per_side / 10_000  # sell + buy legs
+                if holdings:
+                    changed = len(set(new_holdings) ^ set(holdings)) / 2
+                    turnover = changed / max(len(new_holdings), 1)
+                    cost = 2 * turnover * cfg.cost_bps_per_side / 10_000  # sell + buy legs
+                else:
+                    # Initial entry from cash: only the buy leg exists.
+                    cost = cfg.cost_bps_per_side / 10_000
                 holdings = new_holdings
                 holdings_log.append((str(pd.Timestamp(week).date()), list(holdings)))
                 weeks_since_rebalance = 0

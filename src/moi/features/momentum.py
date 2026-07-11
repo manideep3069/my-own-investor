@@ -30,7 +30,11 @@ def momentum_features(
         out["rs_13w"] = out["ret_13w"].sub(bench_13w, axis=0)
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        out["adv_dollar_13w_log"] = np.log10(dollar_vol.rolling(13).mean())
+        # A zero-volume window would yield log10(0) = -inf, which survives dropna and
+        # poisons ranks downstream — map infinities to NaN.
+        out["adv_dollar_13w_log"] = np.log10(dollar_vol.rolling(13).mean()).replace(
+            [np.inf, -np.inf], np.nan
+        )
     out["vol_trend"] = dollar_vol.rolling(4).mean() / dollar_vol.rolling(26).mean()
 
     return out

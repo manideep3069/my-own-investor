@@ -29,9 +29,21 @@ def test_sector_caps_enforced() -> None:
     picked = select_with_sector_caps(ranked, sectors, top_n=6, max_sector_share=0.34)
     tickers = [t for t, _ in picked]
     assert len(picked) == 6
-    # cap = ceil(0.34 * 6) = 3 → only three "hot" names admitted, rest skipped over.
-    assert sum(1 for t in tickers if sectors[t] == "hot") == 3
-    assert tickers[:3] == ["T0", "T1", "T2"]
+    # cap = floor(0.34 * 6) = 2 → two "hot" names (33% ≤ 34%); ceil would give 3/6 = 50%.
+    assert sum(1 for t in tickers if sectors[t] == "hot") == 2
+    assert tickers[:2] == ["T0", "T1"]
+
+
+def test_sector_cap_recomputed_when_book_runs_short() -> None:
+    # Only 4 candidates exist for top_n=12: without the re-check, 3 "hot" names
+    # would be 75% of the actual book despite a 30% cap.
+    ranked = pd.DataFrame({"ticker": ["A", "B", "C", "D"], "score": [0.9, 0.8, 0.7, 0.6]})
+    sectors = {"A": "hot", "B": "hot", "C": "hot", "D": "cool"}
+    picked = select_with_sector_caps(ranked, sectors, top_n=12, max_sector_share=0.30)
+    tickers = [t for t, _ in picked]
+    # effective cap = max(1, floor(0.30 * 4)) = 1 hot name
+    assert sum(1 for t in tickers if sectors[t] == "hot") == 1
+    assert "D" in tickers
 
 
 def test_selection_respects_ranking_order() -> None:

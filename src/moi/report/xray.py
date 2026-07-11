@@ -90,17 +90,20 @@ def risk_table(
 
 
 def contribution(closes: pd.DataFrame, weights: dict[str, float], window_days: int) -> pd.Series:
-    """Approximate contribution to portfolio return: weight * window return, per holding."""
+    """Additive contribution: weight × daily return, summed over the window.
+
+    Uses the same daily-return matrix as :func:`portfolio_returns`, so contributions
+    sum to the portfolio's cumulative arithmetic return — and a holding with partial
+    window data (recent IPO) contributes only over the days it actually has, instead
+    of a full-weight return measured from its own late start."""
     window = closes.tail(window_days + 1)
-    out = {}
-    total = sum(weights.values()) or 1.0
-    for ticker, w in weights.items():
-        series = window.get(ticker)
-        if series is None or series.dropna().empty:
-            continue
-        s = series.dropna()
-        out[ticker] = (w / total) * float(s.iloc[-1] / s.iloc[0] - 1)
-    return pd.Series(out).sort_values()
+    cols = [t for t in weights if t in window.columns]
+    if not cols:
+        return pd.Series(dtype=float)
+    w = pd.Series({t: weights[t] for t in cols})
+    w = w / w.sum()
+    rets = window[cols].pct_change(fill_method=None)
+    return rets.mul(w, axis=1).sum(axis=0).sort_values()
 
 
 def correlation_matrix(closes: pd.DataFrame, tickers: list[str], window_days: int) -> pd.DataFrame:

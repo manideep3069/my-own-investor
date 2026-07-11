@@ -41,7 +41,41 @@ def _sidebar() -> None:
             with contextlib.suppress(DBBusy):
                 execute_write(lambda con: set_kill_switch(con, not kill_on))
         st.rerun()
+
+    _trading_lock_widget()
     st.sidebar.caption("Model output — not financial advice.")
+
+
+def _trading_lock_widget() -> None:
+    """Arming window for live execution: unlock with the key from .env, auto-relocks."""
+    from datetime import datetime
+
+    from moi.config import get_settings
+    from moi.execute.executor import (
+        SafetyError,
+        lock_trading,
+        trading_unlocked_until,
+        unlock_trading,
+    )
+
+    if not get_settings().trading_unlock_key:
+        return  # feature not configured — executor behaves as before
+    until = trading_unlocked_until()
+    if until:
+        minutes = max(0, int((until - datetime.now()).total_seconds() // 60))
+        st.sidebar.warning(f"🔓 Trading UNLOCKED — {minutes} min left")
+        if st.sidebar.button("Relock now"):
+            lock_trading()
+            st.rerun()
+    else:
+        with st.sidebar.expander("🔒 Trading locked — unlock"):
+            key = st.text_input("Unlock key", type="password", key="unlock_key")
+            if st.button("Unlock", key="unlock_btn") and key:
+                try:
+                    unlock_trading(key)
+                    st.rerun()
+                except SafetyError:
+                    st.error("Invalid key.")
 
 
 nav = st.navigation(

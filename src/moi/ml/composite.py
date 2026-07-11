@@ -43,13 +43,19 @@ WARMUP_WEEKS = 52  # ret_52w needs a year of history before ranks are meaningful
 def composite_scores(df: pd.DataFrame, spec: list[tuple[str, float]] | None = None) -> pd.DataFrame:
     """Score every (ticker, week) row. Returns columns: ticker, week_end, score, label."""
     spec = spec or COMPOSITE_SPEC
+    present = [feat for feat, _ in spec if feat in df.columns]
+    if not present:
+        raise RuntimeError("No composite features present in dataset.")
+    # Require every spec feature: a ticker with (say) 30 weeks of history has no
+    # dist_52w_high, and a 2-of-4 rank mean is on a different scale from a 4-of-4 —
+    # scoring it anyway would let it leapfrog fully-featured names. This doubles as
+    # a natural per-ticker warmup.
+    df = df.dropna(subset=present)
     ranks = [
         df.groupby("week_end")[feat].rank(pct=True) * sign
         for feat, sign in spec
         if feat in df.columns
     ]
-    if not ranks:
-        raise RuntimeError("No composite features present in dataset.")
     out = df[["ticker", "week_end", "label"]].copy()
     out["score"] = pd.concat(ranks, axis=1).mean(axis=1)
     out = out.dropna(subset=["score"])

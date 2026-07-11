@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     max_daily_usd: float = 30_000.0
     # The executor only trades paper accounts (DU...) unless this is explicitly true.
     allow_live: bool = False
+    # Arming rail: when set, live execution additionally requires `moi unlock` (or the
+    # dashboard unlock) with this key, opening a timed window. Secret — .env only.
+    trading_unlock_key: str | None = None
+    trading_unlock_minutes: int = 60
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

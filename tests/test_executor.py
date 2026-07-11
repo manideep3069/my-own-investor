@@ -297,3 +297,57 @@ def test_execute_approved_post_placement_failure_is_unknown(db, fake_ib) -> None
     assert journaled_today(db) > 0  # still consumes daily budget
     # The suggestion stays APPROVED but is blocked from the work list.
     assert execute_approved(db) == ["nothing approved to execute"]
+
+
+# --------------------------------------------------------------------------- #
+# Trading unlock window (arming rail)
+# --------------------------------------------------------------------------- #
+@pytest.fixture()
+def unlock_key(monkeypatch):
+    from moi.config import get_settings
+    from moi.execute.executor import lock_trading
+
+    monkeypatch.setattr(get_settings(), "trading_unlock_key", "open-sesame")
+    lock_trading()
+    yield "open-sesame"
+    lock_trading()
+
+
+def test_unlock_rejects_bad_key(unlock_key) -> None:
+    from moi.execute.executor import SafetyError, trading_unlocked_until, unlock_trading
+
+    with pytest.raises(SafetyError, match="invalid unlock key"):
+        unlock_trading("wrong")
+    assert trading_unlocked_until() is None
+
+
+def test_unlock_opens_and_lock_closes_window(unlock_key) -> None:
+    from moi.execute.executor import lock_trading, trading_unlocked_until, unlock_trading
+
+    until = unlock_trading("open-sesame")
+    assert trading_unlocked_until() == until
+    lock_trading()
+    assert trading_unlocked_until() is None
+
+
+def test_expired_window_reads_locked(unlock_key) -> None:
+    from moi.execute.executor import UNLOCK_FILE, trading_unlocked_until
+
+    UNLOCK_FILE.write_text((datetime.now() - timedelta(minutes=1)).isoformat())
+    assert trading_unlocked_until() is None
+
+
+def test_execute_refuses_live_account_while_locked(db, fake_ib, monkeypatch, unlock_key) -> None:
+    from moi.config import get_settings
+    from moi.execute.executor import SafetyError, unlock_trading
+
+    monkeypatch.setattr(get_settings(), "allow_live", True)
+    fake_ib["ib"].managedAccounts = lambda: ["U9999999"]  # live account
+    sid = _seed(db, status="PENDING")
+    assert decide(db, sid, "APPROVED")
+    with pytest.raises(SafetyError, match="LOCKED"):
+        execute_approved(db)
+    # Unlock → same batch goes through.
+    unlock_trading("open-sesame")
+    results = execute_approved(db)
+    assert any(r.startswith("SUBMITTED") for r in results)

@@ -76,6 +76,50 @@ def set_kill_switch(con: duckdb.DuckDBPyConnection, on: bool) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Trading unlock (arming window)
+# --------------------------------------------------------------------------- #
+UNLOCK_FILE = DATA_DIR / "UNLOCK"
+
+
+def unlock_trading(key: str) -> datetime:
+    """Validate the unlock key and open a timed execution window.
+
+    File-based so it works regardless of DB locks. Raises SafetyError on a bad key
+    or when no key is configured.
+    """
+    import hmac
+
+    s = get_settings()
+    if not s.trading_unlock_key:
+        raise SafetyError("MOI_TRADING_UNLOCK_KEY is not configured — cannot unlock")
+    if not hmac.compare_digest(key.strip(), s.trading_unlock_key):
+        log.warning("trading_unlock_rejected")
+        raise SafetyError("invalid unlock key")
+    until = datetime.now() + timedelta(minutes=s.trading_unlock_minutes)
+    UNLOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    UNLOCK_FILE.write_text(until.isoformat())
+    log.warning("trading_unlocked", until=until.isoformat(timespec="seconds"))
+    return until
+
+
+def lock_trading() -> None:
+    """Close the execution window immediately."""
+    UNLOCK_FILE.unlink(missing_ok=True)
+    log.warning("trading_locked")
+
+
+def trading_unlocked_until() -> datetime | None:
+    """Window expiry if trading is currently unlocked, else None."""
+    if not UNLOCK_FILE.exists():
+        return None
+    try:
+        until = datetime.fromisoformat(UNLOCK_FILE.read_text().strip())
+    except ValueError:
+        return None
+    return until if until > datetime.now() else None
+
+
+# --------------------------------------------------------------------------- #
 # Planning (pure decision logic — fully unit-tested, no broker needed)
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
@@ -338,6 +382,14 @@ def execute_approved(
             raise SafetyError(
                 f"account {account!r} is not a paper account (DU...) and allow_live is false"
             )
+        if not account.startswith("DU") and settings.trading_unlock_key:
+            until = trading_unlocked_until()
+            if until is None:
+                raise SafetyError(
+                    "trading is LOCKED — run `moi unlock` (or use the dashboard sidebar) "
+                    f"to open a {settings.trading_unlock_minutes}-minute execution window"
+                )
+            log.info("trading_window_open", until=until.isoformat(timespec="seconds"))
         summary = {r.tag: r.value for r in ib.accountSummary()}
         net_liq = float(summary.get("NetLiquidation", 0) or 0)
         held = {p.contract.symbol: float(p.position) for p in ib.positions()}
