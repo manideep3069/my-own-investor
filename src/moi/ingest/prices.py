@@ -77,11 +77,12 @@ def normalize_yf_frame(ticker: str, frame: object) -> list[PriceRow]:
 # --------------------------------------------------------------------------- #
 # Fetching
 # --------------------------------------------------------------------------- #
-def fetch_yfinance(tickers: list[str], start: date, end: date) -> list[PriceRow]:
-    """Fetch daily bars for many tickers via yfinance."""
+def fetch_yfinance(tickers: list[str], start: date, end: date) -> tuple[list[PriceRow], list[str]]:
+    """Fetch daily bars via yfinance. Returns (rows, failed_tickers)."""
     import yfinance as yf
 
     rows: list[PriceRow] = []
+    failed: list[str] = []
     # per-ticker loop: robust column handling and isolates a bad symbol
     for ticker in tickers:
         try:
@@ -97,18 +98,22 @@ def fetch_yfinance(tickers: list[str], start: date, end: date) -> list[PriceRow]
             if hasattr(frame, "columns") and getattr(frame.columns, "nlevels", 1) > 1:
                 frame = frame.droplevel(1, axis=1)
             fetched = normalize_yf_frame(ticker, frame)
+            if not fetched:
+                failed.append(ticker)
             rows.extend(fetched)
             log.info("yf_fetched", ticker=ticker, rows=len(fetched))
         except Exception as exc:
+            failed.append(ticker)
             log.warning("yf_fetch_failed", ticker=ticker, error=str(exc))
-    return rows
+    return rows, failed
 
 
-def fetch_ibkr(ib: object, tickers: list[str], years: int) -> list[PriceRow]:
-    """Fetch daily bars from IBKR historical data for the given tickers."""
+def fetch_ibkr(ib: object, tickers: list[str], years: int) -> tuple[list[PriceRow], list[str]]:
+    """Fetch daily bars from IBKR historical data. Returns (rows, failed_tickers)."""
     from ib_async import Stock
 
     rows: list[PriceRow] = []
+    failed: list[str] = []
     for ticker in tickers:
         try:
             contract = Stock(ticker, "SMART", "USD")
@@ -135,15 +140,18 @@ def fetch_ibkr(ib: object, tickers: list[str], years: int) -> list[PriceRow]:
                         high=float(b.high),
                         low=float(b.low),
                         close=float(b.close),
-                        adj_close=float(b.close),
+                        # TRADES bars are split- but not dividend-adjusted: storing them
+                        # as adj_close would mix adjustment bases with yfinance rows.
+                        adj_close=None,
                         volume=int(b.volume) if b.volume and b.volume > 0 else None,
                         source="ibkr",
                     )
                 )
             log.info("ibkr_fetched", ticker=ticker)
         except Exception as exc:
+            failed.append(ticker)
             log.warning("ibkr_fetch_failed", ticker=ticker, error=str(exc))
-    return rows
+    return rows, failed
 
 
 # --------------------------------------------------------------------------- #
@@ -185,18 +193,58 @@ def tracked_tickers(con: duckdb.DuckDBPyConnection) -> list[str]:
     return sorted(set(all_tickers()) | set(held))
 
 
-def incremental_start(
-    con: duckdb.DuckDBPyConnection, years: int, today: date | None = None
-) -> date:
-    """Start date for a refresh: 7 days before the latest stored bar (idempotent overlap),
-    or the full `years` window when the table is empty / `full` refreshes are wanted."""
+DIVERGENCE_TOLERANCE = 0.005  # overlap close mismatch beyond 0.5% → retro-adjustment
+
+
+def full_window_start(years: int, today: date | None = None) -> date:
     today = today or date.today()
-    full_start = today - timedelta(days=int(years * 365.25) + 5)
-    row = con.execute("SELECT max(date) FROM prices_daily").fetchone()
-    if row and row[0]:
-        latest: date = row[0]
-        return max(full_start, latest - timedelta(days=7))
-    return full_start
+    return today - timedelta(days=int(years * 365.25) + 5)
+
+
+def incremental_starts(
+    con: duckdb.DuckDBPyConnection, years: int, tickers: list[str], today: date | None = None
+) -> dict[str, date]:
+    """Per-ticker refresh start: 7 days before THAT ticker's latest stored bar.
+
+    Per-ticker (not a global max) so a symbol that failed for a while, or one newly
+    added to the universe, is healed automatically instead of gaining a permanent gap.
+    """
+    full_start = full_window_start(years, today)
+    latest: dict[str, date] = dict(
+        con.execute("SELECT ticker, max(date) FROM prices_daily GROUP BY ticker").fetchall()
+    )
+    return {
+        t: max(full_start, latest[t] - timedelta(days=7)) if t in latest else full_start
+        for t in tickers
+    }
+
+
+def diverged_tickers(con: duckdb.DuckDBPyConnection, rows: list[PriceRow]) -> set[str]:
+    """Tickers whose refetched bars disagree with stored closes on overlapping dates.
+
+    yfinance retro-adjusts the whole history on splits (and Adj Close on dividends);
+    a mismatch inside the overlap window means everything older is stale too, so the
+    caller should full-refetch these tickers.
+    """
+    if not rows:
+        return set()
+    tickers = sorted({r.ticker for r in rows})
+    min_date = min(r.date for r in rows)
+    placeholders = ", ".join("?" for _ in tickers)
+    stored = {
+        (t, d): float(c)
+        for t, d, c in con.execute(
+            f"SELECT ticker, date, close FROM prices_daily "
+            f"WHERE date >= ? AND close IS NOT NULL AND ticker IN ({placeholders})",
+            [min_date, *tickers],
+        ).fetchall()
+    }
+    out: set[str] = set()
+    for r in rows:
+        old = stored.get((r.ticker, r.date))
+        if old and r.close and abs(r.close / old - 1) > DIVERGENCE_TOLERANCE:
+            out.add(r.ticker)
+    return out
 
 
 def collect_prices(
@@ -207,32 +255,61 @@ def collect_prices(
     source: str = "yfinance",
     full: bool = False,
 ) -> int:
-    """Fetch and upsert daily prices for the universe. Returns rows written.
+    """Fetch and upsert daily prices for the universe. Returns NEW rows stored.
 
-    Incremental by default (last stored date minus a week); ``full=True`` refetches the
-    whole window — use after adding tickers to the universe.
+    Incremental by default with a per-ticker 7-day overlap; when the overlap disagrees
+    with stored closes (split/dividend restatement) the ticker's whole history is
+    refetched and replaced. ``full=True`` refetches everything.
 
     Args:
         source: "yfinance" (default, no gateway needed) or "ibkr" (requires connection).
     """
+    from moi.db import scalar
+
     syms = tickers if tickers is not None else tracked_tickers(con)
     end = date.today()
-    if full:
-        start = end - timedelta(days=int(years * 365.25) + 5)
-    else:
-        start = incremental_start(con, years, end)
+    full_start = full_window_start(years, end)
 
     with track_run(con, job="collect.prices") as run:
         if source == "ibkr":
             from moi.ingest.ibkr import ib_connection
 
             with ib_connection() as ib:
-                rows = fetch_ibkr(ib, syms, years)
+                rows, failed = fetch_ibkr(ib, syms, years)
+        elif full:
+            rows, failed = fetch_yfinance(syms, full_start, end)
         else:
-            rows = fetch_yfinance(syms, start, end)
+            starts = incremental_starts(con, years, syms, end)
+            buckets: dict[date, list[str]] = {}
+            for t, s in starts.items():
+                buckets.setdefault(s, []).append(t)
+            rows, failed = [], []
+            for start_d, group in sorted(buckets.items()):
+                r, f = fetch_yfinance(group, start_d, end)
+                rows += r
+                failed += f
+            # Heal retroactive adjustments: replace the full history of any ticker
+            # whose overlap window no longer matches what we stored.
+            diverged = diverged_tickers(con, rows)
+            if diverged:
+                log.warning("price_series_diverged", tickers=sorted(diverged))
+                healed, f2 = fetch_yfinance(sorted(diverged), full_start, end)
+                ok_healed = {r.ticker for r in healed}
+                if ok_healed:
+                    ph = ", ".join("?" for _ in ok_healed)
+                    con.execute(
+                        f"DELETE FROM prices_daily WHERE ticker IN ({ph})", sorted(ok_healed)
+                    )
+                rows = [r for r in rows if r.ticker not in ok_healed] + healed
+                failed += f2
 
-        written = upsert_prices(con, rows)
-        run.add_rows(written)
-        run.detail = f"source={source} tickers={len(syms)} start={start}"
-    log.info("collect_prices_done", rows=written, source=source, tickers=len(syms))
-    return written
+        before = int(scalar(con, "SELECT count(*) FROM prices_daily"))
+        processed = upsert_prices(con, rows)
+        new_rows = int(scalar(con, "SELECT count(*) FROM prices_daily")) - before
+        run.add_rows(new_rows)
+        run.add_failures(len(set(failed)))
+        run.detail = f"source={source} tickers={len(syms)} processed={processed}"
+        if failed:
+            run.detail += f" failed={','.join(sorted(set(failed))[:8])}"
+    log.info("collect_prices_done", new=new_rows, processed=processed, source=source)
+    return new_rows

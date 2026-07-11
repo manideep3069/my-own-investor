@@ -39,21 +39,41 @@ def test_normalize_empty_frame() -> None:
     assert normalize_yf_frame("ALAB", pd.DataFrame()) == []
 
 
-def test_incremental_start(db) -> None:
+def test_incremental_starts_are_per_ticker(db) -> None:
     from datetime import date, timedelta
 
-    from moi.ingest.prices import incremental_start
+    from moi.ingest.prices import incremental_starts
 
     today = date(2026, 7, 6)
-    # Empty table → full window.
-    assert incremental_start(db, years=2, today=today) == today - timedelta(
-        days=int(2 * 365.25) + 5
-    )
-    # With stored data → resume one week before the latest bar.
+    full = today - timedelta(days=int(2 * 365.25) + 5)
+    # Empty table → full window for everyone.
+    assert incremental_starts(db, 2, ["X", "Y"], today=today) == {"X": full, "Y": full}
+    # A ticker resumes a week before ITS OWN latest bar; a laggard resumes from
+    # its stale date (heals the gap); a brand-new ticker gets the full window.
     db.execute(
         "INSERT INTO prices_daily (ticker, date, close, source) VALUES ('X', '2026-07-01', 1, 't')"
     )
-    assert incremental_start(db, years=2, today=today) == date(2026, 6, 24)
+    db.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) VALUES ('Y', '2026-05-01', 1, 't')"
+    )
+    starts = incremental_starts(db, 2, ["X", "Y", "NEW"], today=today)
+    assert starts == {"X": date(2026, 6, 24), "Y": date(2026, 4, 24), "NEW": full}
+
+
+def test_diverged_tickers_detects_retro_adjustment(db) -> None:
+    from moi.ingest.prices import diverged_tickers
+
+    db.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) VALUES ('X', '2026-07-01', 100, 't')"
+    )
+    db.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) VALUES ('Y', '2026-07-01', 50, 't')"
+    )
+    refetched = [
+        PriceRow("X", date(2026, 7, 1), None, None, None, 10.0, 10.0, None, "yfinance"),  # 10:1
+        PriceRow("Y", date(2026, 7, 1), None, None, None, 50.01, 50.0, None, "yfinance"),
+    ]
+    assert diverged_tickers(db, refetched) == {"X"}
 
 
 def test_upsert_is_idempotent(db) -> None:

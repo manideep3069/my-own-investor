@@ -576,13 +576,28 @@ def status() -> None:
             fg=state_colors.get(ts.state, typer.colors.YELLOW),
         )
 
+    from moi.ingest.quality import price_gaps
+
+    gaps = price_gaps(con)
+    if gaps:
+        typer.secho("per-ticker price gaps", fg=typer.colors.RED)
+        for g in gaps:
+            typer.secho(
+                f"  {g.ticker:6} latest {g.latest or 'never'} ({g.lag_days}d behind)",
+                fg=typer.colors.RED,
+            )
+
     last_runs = con.execute(
         "SELECT job, status, rows_written, finished_at FROM run_log "
         "ORDER BY started_at DESC LIMIT 8"
     ).fetchall()
     if last_runs:
         typer.echo("recent runs")
-        status_colors = {"ok": typer.colors.GREEN, "error": typer.colors.RED}
+        status_colors = {
+            "ok": typer.colors.GREEN,
+            "partial": typer.colors.YELLOW,
+            "error": typer.colors.RED,
+        }
         for job, st, rows, fin in last_runs:
             c = status_colors.get(st, typer.colors.YELLOW)
             typer.secho(f"  {job:20} {st:7} rows={rows} at {fin}", fg=c)

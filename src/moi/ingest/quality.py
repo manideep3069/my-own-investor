@@ -18,6 +18,7 @@ class FreshnessCheck:
     ts_column: str
     max_age_days: int
     optional: bool = False  # True → empty table reports "skipped", not "stale"
+    where: str | None = None  # extra filter (constant SQL, never user input)
 
 
 CHECKS: list[FreshnessCheck] = [
@@ -25,7 +26,14 @@ CHECKS: list[FreshnessCheck] = [
     FreshnessCheck("filings_13f", "filed_at", max_age_days=120),
     FreshnessCheck("insider_form4", "filed_at", max_age_days=60, optional=True),
     FreshnessCheck("congress_trades", "disclosure_date", max_age_days=21, optional=True),
-    FreshnessCheck("polymarket_series", "ts", max_age_days=5),
+    # Resolved markets stop ticking — only open ones can be "stale".
+    FreshnessCheck(
+        "polymarket_series",
+        "ts",
+        max_age_days=5,
+        optional=True,
+        where="slug IN (SELECT slug FROM polymarket_markets WHERE NOT closed)",
+    ),
     FreshnessCheck("news_items", "published_at", max_age_days=5),
     FreshnessCheck("macro_series", "date", max_age_days=45, optional=True),
 ]
@@ -53,7 +61,10 @@ def check_freshness(con: duckdb.DuckDBPyConnection) -> list[TableStatus]:
     """Evaluate every freshness check against the database."""
     results: list[TableStatus] = []
     for check in CHECKS:
-        row = con.execute(f"SELECT count(*), max({check.ts_column}) FROM {check.table}").fetchone()
+        clause = f" WHERE {check.where}" if check.where else ""
+        row = con.execute(
+            f"SELECT count(*), max({check.ts_column}) FROM {check.table}{clause}"
+        ).fetchone()
         rows = int(row[0]) if row else 0
         latest = row[1] if row else None
 
@@ -71,3 +82,31 @@ def check_freshness(con: duckdb.DuckDBPyConnection) -> list[TableStatus]:
             )
         )
     return results
+
+
+@dataclass(frozen=True)
+class PriceGap:
+    ticker: str
+    latest: date | None
+    lag_days: int
+
+
+def price_gaps(con: duckdb.DuckDBPyConnection, max_lag_days: int = 5) -> list[PriceGap]:
+    """Tickers whose own latest bar lags the table-wide latest bar.
+
+    The global freshness check can't see per-ticker holes (one healthy ticker keeps
+    the global max fresh) — this is the net under a rate-limited or delisted symbol.
+    """
+    rows = con.execute(
+        """WITH per AS (
+               SELECT ticker, max(date) AS latest FROM prices_daily GROUP BY ticker
+           ), glob AS (SELECT max(date) AS m FROM prices_daily)
+           SELECT u.ticker, per.latest, coalesce(glob.m - per.latest, 99999) AS lag
+           FROM universe u
+           LEFT JOIN per ON per.ticker = u.ticker
+           CROSS JOIN glob
+           WHERE u.active AND (per.latest IS NULL OR glob.m - per.latest > ?)
+           ORDER BY lag DESC""",
+        [max_lag_days],
+    ).fetchall()
+    return [PriceGap(ticker=t, latest=latest, lag_days=int(lag)) for t, latest, lag in rows]

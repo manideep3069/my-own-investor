@@ -125,13 +125,42 @@ def annotate_changes(holdings: list[Holding], previous_shares: dict[str, float])
         prev = previous_shares.get(h.cusip)
         if prev is None:
             h.change_status = "NEW"
-        elif h.shares is None or abs(h.shares - prev) < 1:
+        elif h.shares is None:
+            h.change_status = None  # unknown share count ≠ "unchanged"
+        elif abs(h.shares - prev) < 1:
             h.change_status = "UNCHANGED"
         elif h.shares > prev:
             h.change_status = "INCREASED"
         else:
             h.change_status = "DECREASED"
     return holdings
+
+
+def exit_rows(
+    manager: Manager,
+    period: date,
+    filed_at: date | None,
+    holdings: list[Holding],
+    previous: dict[str, tuple[float, str | None, str | None]],
+) -> list[Holding]:
+    """Synthetic shares=0 rows for positions present last quarter but absent now."""
+    current = {h.cusip for h in holdings}
+    return [
+        Holding(
+            manager_cik=manager.cik,
+            manager_name=manager.name,
+            period=period,
+            cusip=cusip,
+            ticker=ticker,
+            issuer=issuer,
+            value_usd=0.0,
+            shares=0.0,
+            change_status="EXITED",
+            filed_at=filed_at,
+        )
+        for cusip, (shares, ticker, issuer) in previous.items()
+        if cusip not in current and shares > 0
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -173,22 +202,31 @@ def upsert_holdings(con: duckdb.DuckDBPyConnection, holdings: list[Holding]) -> 
     return len(holdings)
 
 
-def previous_period_shares(
+def previous_holdings(
     con: duckdb.DuckDBPyConnection, cik: str, before: date
-) -> dict[str, float]:
-    """Shares-by-cusip for the manager's latest stored period strictly before `before`."""
+) -> dict[str, tuple[float, str | None, str | None]]:
+    """(shares, ticker, issuer) by cusip for the manager's latest stored period before
+    `before`. Synthetic EXITED rows (shares=0) are excluded so a re-entered position
+    correctly reads NEW."""
     row = con.execute(
         "SELECT max(period) FROM filings_13f WHERE manager_cik = ? AND period < ?",
         [cik, before],
     ).fetchone()
     if not row or row[0] is None:
         return {}
-    prev_period = row[0]
     rows = con.execute(
-        "SELECT cusip, shares FROM filings_13f WHERE manager_cik = ? AND period = ?",
-        [cik, prev_period],
+        """SELECT cusip, shares, ticker, issuer FROM filings_13f
+           WHERE manager_cik = ? AND period = ? AND shares IS NOT NULL AND shares > 0""",
+        [cik, row[0]],
     ).fetchall()
-    return {r[0]: float(r[1]) for r in rows if r[1] is not None}
+    return {r[0]: (float(r[1]), r[2], r[3]) for r in rows}
+
+
+def previous_period_shares(
+    con: duckdb.DuckDBPyConnection, cik: str, before: date
+) -> dict[str, float]:
+    """Shares-by-cusip for the manager's latest stored period strictly before `before`."""
+    return {cusip: shares for cusip, (shares, _, _) in previous_holdings(con, cik, before).items()}
 
 
 # --------------------------------------------------------------------------- #
@@ -214,10 +252,13 @@ def collect_13f(con: duckdb.DuckDBPyConnection, whales_path: Path | None = None)
                 company = Company(int(mgr.cik))
                 filings = company.get_filings(form="13F-HR").head(backfill)
             except Exception as exc:
+                run.add_failures()
                 log.warning("13f_manager_failed", cik=mgr.cik, error=str(exc))
                 continue
 
-            # Oldest first so change-status diffs build forward in time.
+            # Oldest (period, filed_at) first: diffs build forward in time, and an
+            # amendment (13F-HR/A, filed later) is processed AFTER its original so
+            # the restatement wins.
             parsed: list[tuple[date, date | None, Any]] = []
             for filing in filings:
                 try:
@@ -229,18 +270,39 @@ def collect_13f(con: duckdb.DuckDBPyConnection, whales_path: Path | None = None)
                     filed = getattr(filing, "filing_date", None)
                     parsed.append((period, filed, frame))
                 except Exception as exc:
+                    run.add_failures()
                     log.warning("13f_filing_parse_failed", cik=mgr.cik, error=str(exc))
-            parsed.sort(key=lambda t: t[0])
+            parsed.sort(key=lambda t: (t[0], t[1] or date.min))
 
             for period, filed, frame in parsed:
+                stored_row = con.execute(
+                    "SELECT max(filed_at) FROM filings_13f WHERE manager_cik = ? AND period = ?",
+                    [mgr.cik, period],
+                ).fetchone()
+                stored_filed = stored_row[0] if stored_row else None
+                if stored_filed and filed and filed < stored_filed:
+                    # A stale original arriving after its amendment was stored.
+                    log.info("13f_skipped_stale", manager=mgr.name, period=str(period))
+                    continue
+                if stored_filed and filed and filed > stored_filed:
+                    # Restatement: replace the period wholesale so holdings removed by
+                    # the amendment don't linger as phantoms.
+                    con.execute(
+                        "DELETE FROM filings_13f WHERE manager_cik = ? AND period = ?",
+                        [mgr.cik, period],
+                    )
+                    log.info("13f_restated", manager=mgr.name, period=str(period))
+
                 holdings = normalize_13f_table(mgr, period, filed, frame)
-                prev = previous_period_shares(con, mgr.cik, period)
+                prev_full = previous_holdings(con, mgr.cik, period)
+                prev = {c: s for c, (s, _, _) in prev_full.items()}
                 # Guard against partial filings (confidential-treatment 13Fs report only
                 # a few positions): diffing against such a baseline produces dozens of
                 # false NEW statuses. Require the baseline to be at least ~half the size
                 # of the current filing; otherwise leave change_status NULL.
                 if prev and len(prev) >= 0.5 * max(len(holdings), 1):
                     annotate_changes(holdings, prev)
+                    holdings += exit_rows(mgr, period, filed, holdings, prev_full)
                 elif prev:
                     log.warning(
                         "13f_baseline_implausible",

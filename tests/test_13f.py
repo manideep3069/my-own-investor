@@ -101,3 +101,66 @@ def test_holding_dataclass_defaults() -> None:
         filed_at=None,
     )
     assert h.change_status is None
+
+
+def test_annotate_unknown_shares_is_null_not_unchanged() -> None:
+    h = Holding(
+        MGR.cik, MGR.name, date(2026, 3, 31), "037833100", "AAPL", None, 1.0, None, None, None
+    )
+    annotate_changes([h], {"037833100": 10_000.0})
+    assert h.change_status is None
+
+
+def test_exit_rows_and_reentry_reads_new(db) -> None:
+    from moi.ingest.edgar_13f import exit_rows, previous_holdings
+
+    q1 = normalize_13f_table(MGR, date(2026, 3, 31), date(2026, 5, 1), _frame())
+    upsert_holdings(db, q1)
+
+    # Q2 drops COHR entirely → synthetic EXITED row with the old ticker attached.
+    q2_frame = pd.DataFrame(
+        {
+            "Issuer": ["Apple Inc"],
+            "Cusip": ["037833100"],
+            "Ticker": ["AAPL"],
+            "Value": [1_100_000.0],
+            "Shares": [10_000.0],
+        }
+    )
+    q2 = normalize_13f_table(MGR, date(2026, 6, 30), date(2026, 8, 1), q2_frame)
+    prev_full = previous_holdings(db, MGR.cik, date(2026, 6, 30))
+    exits = exit_rows(MGR, date(2026, 6, 30), date(2026, 8, 1), q2, prev_full)
+    assert [(e.cusip, e.ticker, e.shares, e.change_status) for e in exits] == [
+        ("19247G107", "COHR", 0.0, "EXITED")
+    ]
+    upsert_holdings(db, q2 + exits)
+
+    # Q3 re-buys COHR: the EXITED (shares=0) row must NOT count as prior holding.
+    prev_q3 = previous_period_shares(db, MGR.cik, date(2026, 9, 30))
+    assert "19247G107" not in prev_q3
+
+
+def test_restatement_replaces_period_wholesale(db) -> None:
+    """Simulates the collect loop's delete-on-newer-filed_at behavior."""
+    q1 = normalize_13f_table(MGR, date(2026, 3, 31), date(2026, 5, 1), _frame())
+    upsert_holdings(db, q1)  # original: AAPL + COHR
+
+    # Amendment (filed later) restates the quarter to AAPL only.
+    amended = pd.DataFrame(
+        {
+            "Issuer": ["Apple Inc"],
+            "Cusip": ["037833100"],
+            "Ticker": ["AAPL"],
+            "Value": [900_000.0],
+            "Shares": [9_000.0],
+        }
+    )
+    db.execute(
+        "DELETE FROM filings_13f WHERE manager_cik = ? AND period = ?",
+        [MGR.cik, date(2026, 3, 31)],
+    )
+    upsert_holdings(db, normalize_13f_table(MGR, date(2026, 3, 31), date(2026, 5, 20), amended))
+    rows = db.execute(
+        "SELECT cusip, shares FROM filings_13f WHERE period = '2026-03-31'"
+    ).fetchall()
+    assert rows == [("037833100", 9_000.0)]  # COHR phantom is gone

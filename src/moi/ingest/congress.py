@@ -19,6 +19,7 @@ import duckdb
 import httpx
 
 from moi.config import get_settings
+from moi.ingest import http
 from moi.logging import get_logger
 from moi.runlog import track_run
 
@@ -35,9 +36,15 @@ class CongressTrade:
     tx_date: date | None
     disclosure_date: date | None
     source: str
+    native_id: str | None = None  # provider's own transaction id, when it has one
 
     @property
     def tx_id(self) -> str:
+        # Prefer the provider's native id (distinguishes e.g. same-day self + spouse
+        # trades in the same amount band). The fallback hash deliberately excludes
+        # `source` so switching providers doesn't duplicate the whole history.
+        if self.native_id:
+            return hashlib.sha1(f"native|{self.native_id}".encode()).hexdigest()[:16]
         raw = "|".join(
             str(x)
             for x in (
@@ -46,7 +53,6 @@ class CongressTrade:
                 self.direction,
                 self.amount_range,
                 self.tx_date,
-                self.source,
             )
         )
         return hashlib.sha1(raw.encode()).hexdigest()[:16]
@@ -104,6 +110,7 @@ class QuiverProvider:
             tx_date=_to_date(row.get("TransactionDate")),
             disclosure_date=_to_date(row.get("ReportDate") or row.get("Date")),
             source="quiver",
+            native_id=(str(row["TransactionID"]) if row.get("TransactionID") else None),
         )
 
 
@@ -137,6 +144,7 @@ class UnusualWhalesProvider:
             tx_date=_to_date(row.get("transaction_date") or row.get("txn_date")),
             disclosure_date=_to_date(row.get("disclosure_date") or row.get("filed_at")),
             source="unusualwhales",
+            native_id=(str(row["id"]) if row.get("id") else None),
         )
 
 
@@ -192,7 +200,7 @@ def collect_congress(con: duckdb.DuckDBPyConnection) -> int:
         return 0
     with track_run(con, job="collect.congress") as run:
         try:
-            with httpx.Client(timeout=60) as client:
+            with http.client(timeout=60) as client:
                 trades = provider.fetch(client)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (401, 403):

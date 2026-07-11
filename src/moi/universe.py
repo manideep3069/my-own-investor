@@ -75,6 +75,10 @@ def sync_universe(con: duckdb.DuckDBPyConnection, path: Path | None = None) -> i
     marks tickers no longer in the YAML as ``active = FALSE`` (keeps history for backtests).
     """
     instruments = load_universe(path)
+    if not instruments:
+        # An empty YAML would deactivate everything (and `NOT IN ()` is a parse error);
+        # this is always a config mistake, so fail loudly instead.
+        raise ValueError("config/universe.yaml contains no instruments — refusing to sync")
     today = date.today()
     tickers = [i.ticker for i in instruments]
 

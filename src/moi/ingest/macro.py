@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import httpx
 import yaml
 
 from moi.config import CONFIG_DIR, get_settings
+from moi.ingest import http
 from moi.logging import get_logger
 from moi.runlog import track_run
 
@@ -62,7 +62,7 @@ def collect_macro(con: duckdb.DuckDBPyConnection, config_path: Path | None = Non
     series = cfg.get("series", [])
     total = 0
     with track_run(con, job="collect.macro") as run:
-        with httpx.Client(timeout=30) as client:
+        with http.client(timeout=30) as client:
             for entry in series:
                 sid = entry["id"]
                 try:
@@ -81,6 +81,7 @@ def collect_macro(con: duckdb.DuckDBPyConnection, config_path: Path | None = Non
                     total += written
                     log.info("macro_stored", series=sid, points=written)
                 except Exception as exc:
+                    run.add_failures()
                     log.warning("macro_failed", series=sid, error=str(exc))
         run.add_rows(total)
         run.detail = f"series={len(series)}"

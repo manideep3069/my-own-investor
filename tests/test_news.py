@@ -38,3 +38,13 @@ def test_upsert_news_dedup(db) -> None:
     upsert_news(db, items)
     upsert_news(db, items)  # same URL hash → single row
     assert db.execute("SELECT count(*) FROM news_items").fetchone()[0] == 1
+
+
+def test_same_url_different_ticker_gets_distinct_id() -> None:
+    from moi.ingest.news import parse_rss
+
+    xml = """<rss><channel><item><title>Chip news</title>
+             <link>https://example.com/a</link></item></channel></rss>"""
+    a = parse_rss(xml, feed="yahoo", ticker="NVDA")[0]
+    b = parse_rss(xml, feed="yahoo", ticker="AMD")[0]
+    assert a.id != b.id  # attributed to both tickers, not just the first fetched

@@ -24,9 +24,11 @@ def collect_everything(con: duckdb.DuckDBPyConnection) -> list[tuple[str, str]]:
     from moi.ingest.prices import collect_prices
 
     settings = get_settings()
-    sync_universe(con)
 
     steps: list[tuple[str, Callable[[], int]]] = [
+        # First and isolated like every other step: a universe.yaml typo must not
+        # abort the whole nightly run before any collector fires.
+        ("universe", lambda: sync_universe(con)),
         ("prices", lambda: collect_prices(con, years=settings.price_history_years)),
         ("13f", lambda: collect_13f(con)),
         ("form4", lambda: collect_form4(con)),

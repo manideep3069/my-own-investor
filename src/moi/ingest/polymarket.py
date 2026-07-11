@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import httpx
 import yaml
 
 from moi.config import CONFIG_DIR
+from moi.ingest import http
 from moi.logging import get_logger
 from moi.runlog import track_run
 
@@ -124,7 +124,7 @@ def collect_polymarket(con: duckdb.DuckDBPyConnection, config_path: Path | None 
     markets = load_tracked_markets(config_path)
     total = 0
     with track_run(con, job="collect.polymarket") as run:
-        with httpx.Client(timeout=30) as client:
+        with http.client(timeout=30) as client:
             for market in markets:
                 try:
                     resp = client.get(GAMMA_URL, params={"slug": market.slug})
@@ -151,6 +151,7 @@ def collect_polymarket(con: duckdb.DuckDBPyConnection, config_path: Path | None 
                     total += written
                     log.info("polymarket_stored", slug=market.slug, points=written)
                 except Exception as exc:
+                    run.add_failures()
                     log.warning("polymarket_failed", slug=market.slug, error=str(exc))
         run.add_rows(total)
         run.detail = f"markets={len(markets)}"

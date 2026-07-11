@@ -68,3 +68,25 @@ def test_fetch_and_upsert_idempotent(db) -> None:
     upsert_trades(db, trades)
     upsert_trades(db, trades)  # same tx_id → no duplicates
     assert db.execute("SELECT count(*) FROM congress_trades").fetchone()[0] == 2
+
+
+def test_tx_id_prefers_native_id_and_ignores_source() -> None:
+    from moi.ingest.congress import CongressTrade
+
+    base = dict(
+        politician="Jane Doe",
+        chamber="house",
+        ticker="NVDA",
+        direction="buy",
+        amount_range="$1,001-$15,000",
+        tx_date=None,
+        disclosure_date=None,
+    )
+    # Same trade from two providers (no native id) → same tx_id (no duplication).
+    a = CongressTrade(**base, source="quiver")
+    b = CongressTrade(**base, source="unusualwhales")
+    assert a.tx_id == b.tx_id
+    # Two same-day same-band trades with distinct native ids → distinct rows.
+    c = CongressTrade(**base, source="quiver", native_id="111")
+    d = CongressTrade(**base, source="quiver", native_id="222")
+    assert c.tx_id != d.tx_id

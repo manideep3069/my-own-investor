@@ -15,10 +15,10 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import duckdb
-import httpx
 import yaml
 
 from moi.config import CONFIG_DIR
+from moi.ingest import http
 from moi.logging import get_logger
 from moi.runlog import track_run
 from moi.universe import candidate_tickers
@@ -82,7 +82,9 @@ def parse_rss(xml_text: str, *, feed: str, ticker: str | None = None) -> list[Ne
         summary = find_text("description", "{http://www.w3.org/2005/Atom}summary")
         items.append(
             NewsItem(
-                id=hashlib.sha1(url.encode()).hexdigest()[:16],
+                # Hash (url, ticker): the same article syndicated into several tickers'
+                # feeds must attribute to each of them, not just the first fetched.
+                id=hashlib.sha1(f"{url}|{ticker or ''}".encode()).hexdigest()[:16],
                 ticker=ticker,
                 title=title,
                 url=url,
@@ -115,7 +117,7 @@ def collect_news(con: duckdb.DuckDBPyConnection, config_path: Path | None = None
     with track_run(con, job="collect.news") as run:
         # Some feeds (Yahoo) return empty results for non-browser user agents.
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh) moi-news/0.1"}
-        with httpx.Client(timeout=20, follow_redirects=True, headers=headers) as client:
+        with http.client(timeout=20, follow_redirects=True, headers=headers) as client:
             per_ticker = cfg.get("per_ticker", {})
             if per_ticker.get("enabled"):
                 template = per_ticker["url_template"]
@@ -126,6 +128,7 @@ def collect_news(con: duckdb.DuckDBPyConnection, config_path: Path | None = None
                         items = parse_rss(resp.text, feed="yahoo", ticker=ticker)
                         total += upsert_news(con, items)
                     except Exception as exc:
+                        run.add_failures()
                         log.warning("news_ticker_failed", ticker=ticker, error=str(exc))
             for feed in cfg.get("sector_feeds", []) or []:
                 try:
@@ -134,6 +137,7 @@ def collect_news(con: duckdb.DuckDBPyConnection, config_path: Path | None = None
                     items = parse_rss(resp.text, feed=feed["name"])
                     total += upsert_news(con, items)
                 except Exception as exc:
+                    run.add_failures()
                     log.warning("news_feed_failed", feed=feed.get("name"), error=str(exc))
         run.add_rows(total)
     log.info("news_done", items=total)

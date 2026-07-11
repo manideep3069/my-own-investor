@@ -194,9 +194,14 @@ def collect_form4(
             try:
                 filings = Company(ticker).get_filings(form="4").head(filings_per_ticker)
             except Exception as exc:
+                run.add_failures()
                 log.warning("form4_company_failed", ticker=ticker, error=str(exc))
                 continue
             for filing in filings:
+                # get_filings(form="4") also returns 4/A amendments under their own
+                # accession numbers — storing both double-counts the transaction.
+                if str(getattr(filing, "form", "4")).strip() != "4":
+                    continue
                 accession = str(getattr(filing, "accession_no", "") or "")
                 if not accession:
                     continue
