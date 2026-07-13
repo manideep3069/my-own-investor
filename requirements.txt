@@ -1,5 +1,5 @@
-# Minimal deps to run the Streamlit dashboard (dashboard/app.py) on a cloud host.
-# The full pipeline (collectors, ML, IBKR execution) uses environment.yaml instead.
+# Deps to run the Streamlit dashboard (dashboard/app.py) and the data collectors
+# on a cloud host. The full local pipeline (ML, IBKR execution) uses environment.yaml.
 -e .
 streamlit
 plotly
@@ -12,3 +12,8 @@ pyyaml
 structlog
 typer
 httpx
+# collectors ("Collect data" on Mission control): prices, SEC filings, FRED
+yfinance
+edgartools
+fredapi
+scipy

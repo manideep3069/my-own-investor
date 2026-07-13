@@ -21,6 +21,26 @@ from common import DBBusy, DBMissing, execute_write, q  # noqa: E402
 from market import market_widget  # noqa: E402
 
 
+def _bootstrap_seed_db() -> None:
+    """Fresh clone or ephemeral cloud container: start from the committed seed DB.
+
+    ``data/`` is gitignored (live, private); ``data-seed/moi.duckdb`` is a committed
+    snapshot of public market data so the dashboard isn't empty on first boot.
+    """
+    import shutil
+
+    from moi.config import ROOT, get_settings
+
+    db = get_settings().db_path
+    seed = ROOT / "data-seed" / "moi.duckdb"
+    if not db.exists() and seed.exists():
+        db.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(seed, db)
+
+
+_bootstrap_seed_db()
+
+
 def _sidebar() -> None:
     from moi.execute.executor import KILL_FILE, set_kill_file, set_kill_switch
 
