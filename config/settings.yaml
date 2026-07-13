@@ -4,6 +4,10 @@
 log_level: INFO
 log_json: false
 
+# Market the pipeline tracks: us (config/universe.yaml) or india (config/universe_india.yaml).
+# The dashboard's $/₹ toggle is display-only and independent of this.
+region: us
+
 price_history_years: 6
 
 ibkr:

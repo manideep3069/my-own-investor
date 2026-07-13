@@ -1,0 +1,38 @@
+# Seed investment universe — India (NSE). Same theme as the US universe: growth-driven
+# hardware for computing, data centers, power, and connectivity. Tickers use Yahoo
+# Finance NSE suffixes (.NS) so the yfinance price collector works unchanged.
+#
+# Select this file by setting `region: india` in config/settings.yaml (or
+# settings.local.yaml). US-only sources (SEC 13F/Form 4, FRED, congress) have no
+# Indian equivalent and stay empty; prices, momentum features, and the composite
+# signal work normally.
+
+benchmarks:
+  - {ticker: ^NSEI,  name: "NIFTY 50"}
+  - {ticker: ^CNXIT, name: "NIFTY IT"}
+
+sub_sectors:
+  electronics_manufacturing:
+    - {ticker: DIXON.NS,     name: "Dixon Technologies"}
+    - {ticker: KAYNES.NS,    name: "Kaynes Technology"}
+    - {ticker: SYRMA.NS,     name: "Syrma SGS Technology"}
+    - {ticker: AVALON.NS,    name: "Avalon Technologies"}
+    - {ticker: CYIENTDLM.NS, name: "Cyient DLM"}
+    - {ticker: PGEL.NS,      name: "PG Electroplast"}
+    - {ticker: AMBER.NS,     name: "Amber Enterprises"}
+
+  optical_telecom_networking:
+    - {ticker: TEJASNET.NS,  name: "Tejas Networks"}
+    - {ticker: HFCL.NS,      name: "HFCL"}
+    - {ticker: STLTECH.NS,   name: "Sterlite Technologies"}
+
+  power_and_cabling_infra:
+    - {ticker: POLYCAB.NS,   name: "Polycab India"}
+    - {ticker: KEI.NS,       name: "KEI Industries"}
+    - {ticker: APARINDS.NS,  name: "Apar Industries"}
+    - {ticker: CGPOWER.NS,   name: "CG Power and Industrial Solutions"}
+
+  compute_defense_electronics:
+    - {ticker: NETWEB.NS,    name: "Netweb Technologies"}
+    - {ticker: DATAPATTNS.NS, name: "Data Patterns"}
+    - {ticker: BEL.NS,       name: "Bharat Electronics"}

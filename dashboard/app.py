@@ -18,10 +18,14 @@ st.set_page_config(page_title="my-own-investor", page_icon="📈", layout="wide"
 import mission  # noqa: E402
 import views  # noqa: E402
 from common import DBBusy, DBMissing, execute_write, q  # noqa: E402
+from market import market_widget  # noqa: E402
 
 
 def _sidebar() -> None:
     from moi.execute.executor import KILL_FILE, set_kill_file, set_kill_switch
+
+    market_widget()
+    st.sidebar.divider()
 
     kill_on = KILL_FILE.exists()
     db_readable = True

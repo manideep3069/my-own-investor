@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import Field
@@ -82,6 +82,10 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     log_json: bool = False
+
+    # Which market the pipeline tracks: "us" → config/universe.yaml,
+    # "india" → config/universe_india.yaml (NSE tickers via yfinance).
+    region: Literal["us", "india"] = "us"
 
     db_path: Path = DATA_DIR / "moi.duckdb"
 

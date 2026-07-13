@@ -7,7 +7,8 @@ import json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from common import DBBusy, execute_write, page, q, read_connection
+from common import DBBusy, DBMissing, execute_write, missing_note, page, q, read_connection
+from market import IN, conv, market, money, money_compact, symbol, usd_inr
 
 from moi.config import ROOT
 
@@ -60,7 +61,7 @@ def approval_queue() -> None:
                 if net_liq and pd.notna(r["target_weight"]) and pd.notna(r["current_weight"]):
                     delta_usd = (r["target_weight"] - r["current_weight"]) * net_liq
                     if abs(delta_usd) >= 50:
-                        size = f" · ≈ ${abs(delta_usd):,.0f} {'buy' if delta_usd > 0 else 'sell'}"
+                        size = f" · ≈ {money(abs(delta_usd))} {'buy' if delta_usd > 0 else 'sell'}"
                 cw = f"{r['current_weight']:.1%}" if pd.notna(r["current_weight"]) else "—"
                 tw = f"{r['target_weight']:.1%}" if pd.notna(r["target_weight"]) else "—"
                 score = f"{r['score']:.3f}" if pd.notna(r["score"]) else "—"
@@ -126,10 +127,10 @@ def portfolio() -> None:
     t = view.table
     total_pnl = float(t["pnl"].sum())
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Net liquidation", f"${view.net_liquidation:,.0f}")
+    c1.metric("Net liquidation", money(view.net_liquidation))
     c2.metric(
         "Unrealized P&L",
-        f"${total_pnl:,.0f}",
+        money(total_pnl),
         f"{total_pnl / (t['value'].sum() - total_pnl):+.1%}",
     )
     c3.metric("Positions", f"{len(t)}")
@@ -170,11 +171,11 @@ def portfolio() -> None:
         show.style.format(
             {
                 "qty": "{:.0f}",
-                "avg_cost": "${:.2f}",
-                "price": "${:.2f}",
-                "value": "${:,.0f}",
+                "avg_cost": lambda v: money(v, 2),
+                "price": lambda v: money(v, 2),
+                "value": lambda v: money(v),
                 "weight": "{:.1%}",
-                "pnl": "${:,.0f}",
+                "pnl": lambda v: money(v),
                 "pnl_pct": "{:+.1%}",
                 "1W": "{:+.1%}",
                 "1M": "{:+.1%}",
@@ -204,9 +205,10 @@ def portfolio() -> None:
     st.plotly_chart(fig, width="stretch")
 
     st.subheader("Weights")
+    disp = t.sort_values("value").assign(value=lambda d: d["value"].map(conv))
     st.plotly_chart(
-        px.bar(t.sort_values("value"), x="value", y="ticker", orientation="h").update_layout(
-            xaxis_title="market value ($)", yaxis_title=None
+        px.bar(disp, x="value", y="ticker", orientation="h").update_layout(
+            xaxis_title=f"market value ({symbol()})", yaxis_title=None
         ),
         width="stretch",
     )
@@ -303,15 +305,21 @@ def xray() -> None:
 @page
 def candidates() -> None:
     st.title("Candidate ranking")
-    feats = q(
-        """SELECT f.ticker, f.feature, f.value FROM features_weekly f
-           WHERE f.week_end = (SELECT max(week_end) FROM features_weekly)
-             AND f.ticker != '_MARKET_'
-             AND f.feature IN ('ret_13w', 'ret_26w', 'ret_52w', 'dist_52w_high',
-                               'adv_dollar_13w_log')"""
-    )
+    try:
+        feats = q(
+            """SELECT f.ticker, f.feature, f.value FROM features_weekly f
+               WHERE f.week_end = (SELECT max(week_end) FROM features_weekly)
+                 AND f.ticker != '_MARKET_'
+                 AND f.feature IN ('ret_13w', 'ret_26w', 'ret_52w', 'dist_52w_high',
+                                   'adv_dollar_13w_log')"""
+        )
+    except DBMissing:
+        missing_note()
+        _seed_universe_table()
+        return
     if feats.empty:
         st.info("No features yet — run **Collect data** then a report from Mission control.")
+        _seed_universe_table()
         return
 
     week = q("SELECT max(week_end) AS w FROM features_weekly")["w"][0]
@@ -347,6 +355,33 @@ def candidates() -> None:
         st.plotly_chart(fig, width="stretch")
 
 
+def _seed_universe_table() -> None:
+    """Show the seed universe YAML for the toggled market while the DB is still empty."""
+    from moi.config import CONFIG_DIR
+    from moi.universe import load_universe
+
+    fname = "universe_india.yaml" if market() == IN else "universe.yaml"
+    label = "India (NSE)" if market() == IN else "US"
+    try:
+        instruments = load_universe(CONFIG_DIR / fname)
+    except (OSError, ValueError):
+        return
+    st.subheader(f"Seed universe — {label}")
+    st.caption(f"From `config/{fname}` — what **Collect data** will track for this market.")
+    rows = pd.DataFrame(
+        [
+            {
+                "ticker": i.ticker,
+                "name": i.name,
+                "sub-sector": (i.sub_sector or "").replace("_", " "),
+                "benchmark": "★" if i.is_benchmark else "",
+            }
+            for i in instruments
+        ]
+    )
+    st.dataframe(rows, width="stretch", hide_index=True)
+
+
 # --------------------------------------------------------------------------- #
 # Whales
 # --------------------------------------------------------------------------- #
@@ -370,7 +405,7 @@ def whales() -> None:
            WHERE f.period = (SELECT max(period) FROM filings_13f)
            ORDER BY f.value_usd DESC"""
     )
-    overlap = overlap[overlap["manager_name"].isin(pick)]
+    overlap = _position_value_col(overlap[overlap["manager_name"].isin(pick)])
     if overlap.empty:
         st.caption("No overlap between tracked managers and the universe this quarter.")
     else:
@@ -383,7 +418,8 @@ def whales() -> None:
            FROM filings_13f WHERE period = (SELECT max(period) FROM filings_13f)
            ORDER BY value_usd DESC LIMIT 100"""
     )
-    st.dataframe(moves[moves["manager_name"].isin(pick)], width="stretch", hide_index=True)
+    moves = _position_value_col(moves[moves["manager_name"].isin(pick)])
+    st.dataframe(moves, width="stretch", hide_index=True)
 
     st.subheader("Insider activity (90 days)")
     ins = q(
@@ -393,6 +429,16 @@ def whales() -> None:
            GROUP BY ticker ORDER BY buys DESC, sells DESC"""
     )
     st.dataframe(ins, width="stretch", hide_index=True)
+
+
+def _position_value_col(df: pd.DataFrame) -> pd.DataFrame:
+    """Render the 13F ``value_mm`` (USD millions) column in the active market's terms."""
+    if df.empty or "value_mm" not in df.columns:
+        return df
+    if market() == IN:
+        df = df.assign(value_mm=(df["value_mm"] * usd_inr() / 10).round(1))
+        return df.rename(columns={"value_mm": "value (₹ Cr)"})
+    return df.rename(columns={"value_mm": "value ($M)"})
 
 
 # --------------------------------------------------------------------------- #
@@ -494,7 +540,7 @@ def _manage_markets() -> None:
         c1, c2, c3 = st.columns([5, 2, 1])
         ends = f" · ends {res['end_date']:%b %d}" if res["end_date"] else ""
         c1.markdown(
-            f"{res['question']}  \n<small>${res['volume'] / 1e6:.1f}M volume{ends} · "
+            f"{res['question']}  \n<small>{money_compact(res['volume'])} volume{ends} · "
             f"`{res['slug'][:60]}`</small>",
             unsafe_allow_html=True,
         )

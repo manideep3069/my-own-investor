@@ -1,4 +1,8 @@
-"""Load the seed universe from ``config/universe.yaml`` and sync it into the DB."""
+"""Load the seed universe YAML for the configured region and sync it into the DB.
+
+``region: us`` (default) reads ``config/universe.yaml``; ``region: india`` reads
+``config/universe_india.yaml`` (NSE tickers with Yahoo ``.NS`` suffixes).
+"""
 
 from __future__ import annotations
 
@@ -9,10 +13,17 @@ from pathlib import Path
 import duckdb
 import yaml
 
-from moi.config import CONFIG_DIR
+from moi.config import CONFIG_DIR, get_settings
 from moi.logging import get_logger
 
 log = get_logger(__name__)
+
+_REGION_FILES = {"us": "universe.yaml", "india": "universe_india.yaml"}
+
+
+def universe_path() -> Path:
+    """The universe YAML for the configured region."""
+    return CONFIG_DIR / _REGION_FILES[get_settings().region]
 
 
 @dataclass(frozen=True)
@@ -25,7 +36,7 @@ class Instrument:
 
 def load_universe(path: Path | None = None) -> list[Instrument]:
     """Parse the universe YAML into a flat list of instruments (candidates + benchmarks)."""
-    p = path or (CONFIG_DIR / "universe.yaml")
+    p = path or universe_path()
     data = yaml.safe_load(p.read_text()) or {}
 
     instruments: list[Instrument] = []
@@ -78,7 +89,9 @@ def sync_universe(con: duckdb.DuckDBPyConnection, path: Path | None = None) -> i
     if not instruments:
         # An empty YAML would deactivate everything (and `NOT IN ()` is a parse error);
         # this is always a config mistake, so fail loudly instead.
-        raise ValueError("config/universe.yaml contains no instruments — refusing to sync")
+        raise ValueError(
+            f"{(path or universe_path()).name} contains no instruments — refusing to sync"
+        )
     today = date.today()
     tickers = [i.ticker for i in instruments]
 
