@@ -18,6 +18,37 @@ import streamlit as st
 from moi.config import get_settings
 
 
+def bootstrap_seed_db() -> None:
+    """Populate or refresh the live DB from the committed seed snapshot.
+
+    - No live DB (fresh clone, ephemeral cloud container): copy the seed.
+    - Live DB that came from a seed (``.seed-version`` marker) and a newer seed
+      landed (weekly refresh workflow): replace it.
+    - Live DB built by the real pipeline (no marker): never touched.
+    """
+    import hashlib
+    import os
+    import shutil
+
+    from moi.config import ROOT
+
+    db = get_settings().db_path
+    seed = ROOT / "data-seed" / "moi.duckdb"
+    if not seed.exists():
+        return
+    marker = db.parent / ".seed-version"
+    if db.exists() and not marker.exists():
+        return  # real pipeline data — never overwrite
+    digest = hashlib.md5(seed.read_bytes()).hexdigest()
+    if db.exists() and marker.read_text() == digest:
+        return
+    db.parent.mkdir(parents=True, exist_ok=True)
+    tmp = db.with_suffix(".tmp")
+    shutil.copy2(seed, tmp)
+    os.replace(tmp, db)
+    marker.write_text(digest)
+
+
 class DBBusy(Exception):
     """The database is locked by a running pipeline job."""
 
