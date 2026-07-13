@@ -1,0 +1,58 @@
+# Weekly refresh of the committed seed database (data-seed/moi.duckdb).
+#
+# Starts from the current seed (so slow-moving history like Polymarket series
+# accumulates), re-runs every collector, rebuilds features, and commits the
+# result. The dashboard's bootstrap (dashboard/common.py) picks up the new
+# seed automatically on the next app start/rerun.
+#
+# Optional repo secrets: MOI_FRED_API_KEY (FRED macro), MOI_QUIVER_API_KEY
+# (congress trades) — collectors skip gracefully when unset.
+name: refresh-seed-db
+
+on:
+  schedule:
+    - cron: "30 2 * * 6" # Saturdays 02:30 UTC ≈ 08:00 IST, after Friday US close
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect data and rebuild features
+        env:
+          MOI_EDGAR_IDENTITY: "Maruthi Manideep Gorla maruthimanideepgorla@gmail.com"
+          MOI_FRED_API_KEY: ${{ secrets.MOI_FRED_API_KEY }}
+          MOI_QUIVER_API_KEY: ${{ secrets.MOI_QUIVER_API_KEY }}
+        run: |
+          mkdir -p data
+          cp data-seed/moi.duckdb data/moi.duckdb
+          moi db init
+          moi collect all
+          moi features build
+          cp data/moi.duckdb data-seed/moi.duckdb
+
+      - name: Commit refreshed seed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data-seed/moi.duckdb
+          if git diff --cached --quiet; then
+            echo "Seed unchanged — nothing to commit."
+          else
+            git commit -m "chore: weekly seed database refresh"
+            git push
+          fi
