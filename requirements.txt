@@ -1,0 +1,14 @@
+# Minimal deps to run the Streamlit dashboard (dashboard/app.py) on a cloud host.
+# The full pipeline (collectors, ML, IBKR execution) uses environment.yaml instead.
+-e .
+streamlit
+plotly
+pandas
+numpy
+duckdb
+pydantic>=2
+pydantic-settings
+pyyaml
+structlog
+typer
+httpx
